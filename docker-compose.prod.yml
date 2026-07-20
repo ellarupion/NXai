@@ -2,11 +2,15 @@
 # (тот же resaon, что в NX: override'ы Compose склеивают list-поля вроде
 # ports, и порты БД/Redis из dev-файла продолжили бы публиковаться наружу).
 #
-# nginx/TLS/веб-панель здесь пока нет — React-шелл переносится из NX и
-# дособирается в ROADMAP.md Phase 1+; до этого панель доступна только через
-# `api` напрямую (или SSH-туннель на порт 8000), без публичного домена.
+# nginx/TLS здесь нет — на одном VPS рядом с другим проектом (см. DEPLOY.md
+# "Несколько проектов на одном VPS") TLS-терминацию и роутинг по домену берёт
+# на себя ОДИН общий nginx (например, уже существующий у соседнего проекта),
+# а `api` подключается к нему через внешнюю docker-сеть `edge`, не публикуя
+# порт наружу. React-панель для NXai ещё не собрана (ROADMAP.md Phase 1+) —
+# до этого через ai.<домен> доступен только сам API.
 #
 # Запуск: docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Сеть edge должна существовать до первого запуска: docker network create edge
 
 services:
   postgres:
@@ -65,6 +69,7 @@ services:
 
   api:
     build: .
+    container_name: nxai-api
     env_file: .env
     depends_on:
       migrate:
@@ -72,8 +77,12 @@ services:
       redis:
         condition: service_healthy
     command: ["uvicorn", "interfaces.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    ports:
-      - "8000:8000"
+    # Порт наружу НЕ публикуется — общий nginx (см. DEPLOY.md) достаёт до
+    # контейнера по имени nxai-api через сеть edge. Для отладки без домена
+    # можно временно раскомментировать "127.0.0.1:8000:8000" (не 0.0.0.0!).
+    networks:
+      - default
+      - edge
     restart: unless-stopped
 
   scheduler:
@@ -84,6 +93,11 @@ services:
         condition: service_completed_successfully
     command: ["python", "scheduler.py"]
     restart: unless-stopped
+
+networks:
+  default:
+  edge:
+    external: true
 
 volumes:
   postgres_data:

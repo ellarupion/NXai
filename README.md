@@ -8,7 +8,8 @@
 админ-бот собирает уведомления и статистику со всех тематических ботов.
 
 Архитектура и план работ: см. [`ARCHITECTURE.md`](./ARCHITECTURE.md) и
-[`ROADMAP.md`](./ROADMAP.md).
+[`ROADMAP.md`](./ROADMAP.md). Деплой на VPS рядом с другим проектом (общий
+nginx, Cloudflare) — [`DEPLOY.md`](./DEPLOY.md).
 
 Проект — идейный родственник [NX](https://github.com/ellarupion/NX)
 (панель редакции черновиков), часть инфраструктурного кода (`core/config`,
