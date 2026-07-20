@@ -1,0 +1,113 @@
+"""SchedulerPoolService — шафл порядка выхода и джиттер времени публикации
+(см. ARCHITECTURE.md §5). В отличие от NX PublisherService.run_due_publications
+(строгий FIFO по явному Draft.scheduled_for, выставленному вручную), здесь нет
+предзаданного времени публикации на кандидата — планировщик на каждом тике
+решает, пора ли публиковать (is_due) и что публиковать (pick_next),
+взвешенно-случайно по score, а не по порядку появления в источниках."""
+
+import random
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.logging import get_logger
+from core.models.candidate_post import CandidatePost
+from core.models.enums import CandidatePostStatus, PoolPostStatus
+from core.models.pool_post import PoolPost
+from core.models.source_channel import SourceChannel
+
+logger = get_logger(__name__)
+
+
+def is_quiet_hour(cadence: dict, at: datetime) -> bool:
+    start, end = cadence["quiet_hours_start"], cadence["quiet_hours_end"]
+    hour = at.hour
+    if start == end:
+        return False
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def is_due(cadence: dict, last_published_at: datetime | None, now: datetime | None = None) -> bool:
+    """Пора ли публиковать: не в тихие часы, и прошло не меньше
+    min_interval_minutes с последней публикации темы (max_interval_minutes —
+    ориентир для планирования джиттера в next_allowed_delay, здесь не проверяется
+    напрямую — если тик планировщика реже max_interval, важнее не публиковать
+    слишком часто, чем строго уложиться в максимум)."""
+    now = now or datetime.now(timezone.utc)
+    if is_quiet_hour(cadence, now):
+        return False
+    if last_published_at is None:
+        return True
+    min_interval = timedelta(minutes=cadence["min_interval_minutes"])
+    return now - last_published_at >= min_interval
+
+
+def next_allowed_delay(cadence: dict) -> timedelta:
+    """Случайный интервал до следующей публикации в пределах [min, max] +
+    джиттер — используется, если планировщику нужно заранее оценить следующий
+    слот (например, при первом запуске темы), а не только проверять is_due
+    на каждый тик."""
+    base_minutes = random.uniform(cadence["min_interval_minutes"], cadence["max_interval_minutes"])
+    jitter_minutes = random.uniform(-cadence["jitter_minutes"], cadence["jitter_minutes"])
+    return timedelta(minutes=max(1.0, base_minutes + jitter_minutes))
+
+
+@dataclass(frozen=True)
+class NextPost:
+    kind: str  # "candidate" | "pool"
+    id: UUID
+
+
+class SchedulerPoolService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def pick_next(self, theme_id: UUID) -> NextPost | None:
+        """REWRITTEN-кандидаты темы в приоритете (взвешенно-случайно по score —
+        не всегда самый "вирусный", чтобы порядок выхода не был предсказуемым),
+        pool_posts — fallback, когда пул рерайтов пуст (см. ARCHITECTURE.md §5)."""
+        candidate = await self._pick_weighted_candidate(theme_id)
+        if candidate is not None:
+            return NextPost(kind="candidate", id=candidate.id)
+
+        pool_post = await self.pick_pool_post(theme_id)
+        if pool_post is not None:
+            return NextPost(kind="pool", id=pool_post.id)
+
+        return None
+
+    async def _pick_weighted_candidate(self, theme_id: UUID) -> CandidatePost | None:
+        result = await self.session.execute(
+            select(CandidatePost)
+            .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
+            .where(
+                CandidatePost.status == CandidatePostStatus.REWRITTEN,
+                SourceChannel.theme_id == theme_id,
+            )
+        )
+        candidates = list(result.scalars().all())
+        if not candidates:
+            return None
+
+        weights = [max(c.score or 0.0, 0.01) for c in candidates]
+        return random.choices(candidates, weights=weights, k=1)[0]
+
+    async def pick_pool_post(self, theme_id: UUID) -> PoolPost | None:
+        """Публичный метод — используется и здесь (fallback в pick_next), и
+        напрямую core/services/ad_watchdog.py для перекрытия рекламы тем же
+        источником "запасного" контента."""
+        result = await self.session.execute(
+            select(PoolPost)
+            .where(PoolPost.theme_id == theme_id, PoolPost.status == PoolPostStatus.READY)
+            .order_by(PoolPost.last_used_at.asc().nulls_first())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+__all__ = ["SchedulerPoolService", "NextPost", "is_due", "is_quiet_hour", "next_allowed_delay"]

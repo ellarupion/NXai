@@ -1,0 +1,48 @@
+[project]
+name = "nxai"
+version = "0.1.0"
+description = "Мультиканальный агрегатор Telegram-контента по темам — core service layer + telethon ingest + bots + api"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.15,<4.0",
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "sqlalchemy[asyncio]>=2.0,<3.0",
+    "asyncpg>=0.30,<1.0",
+    "alembic>=1.14,<2.0",
+    "pgvector>=0.3,<1.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<3.0",
+    "structlog>=24.4,<25.0",
+    "sentry-sdk>=2.17,<3.0",
+    "litellm>=1.52,<2.0",
+    "apscheduler>=3.10,<4.0",
+    "redis>=5.2,<6.0",
+    "telethon>=1.36,<2.0",
+    "pyjwt>=2.9,<3.0",
+    "bcrypt>=4.2,<6.0",
+    "python-multipart>=0.0.12,<1.0",
+    "httpx>=0.27,<1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<1.0",
+    "ruff>=0.7,<1.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "interfaces"]

@@ -1,0 +1,65 @@
+import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from core.models.enums import CandidatePostStatus
+
+if TYPE_CHECKING:
+    from core.models.post_version import PostVersion
+    from core.models.source_channel import SourceChannel
+
+# Размерность эмбеддингов Voyage AI (voyage-3), совпадает с
+# core/embeddings/client.py:EMBEDDING_MODEL. Смена модели требует смены
+# размерности колонки/новой миграции — как и в NX core/models/draft.py.
+EMBEDDING_DIM = 1024
+
+
+class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Пост, увиденный ingest-воркером в чужом source_channel. Аналог NX Draft,
+    но НЕ создаётся сразу готовым к публикации: проходит
+    NEW → SCORING → SELECTED → REWRITTEN → QUEUED → PUBLISHED, либо
+    REJECTED/DUPLICATE по дороге (core/models/enums.py:CandidatePostStatus,
+    полное описание переходов — core/services/scoring.py и
+    core/services/dedup.py)."""
+
+    __tablename__ = "candidate_posts"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_channel_id", "tg_message_id", name="uq_candidate_source_channel_message"
+        ),
+    )
+
+    source_channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("source_channels.id", ondelete="CASCADE")
+    )
+    tg_message_id: Mapped[int] = mapped_column(BigInteger)
+    raw_text: Mapped[str] = mapped_column(Text)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    status: Mapped[CandidatePostStatus] = mapped_column(default=CandidatePostStatus.NEW, index=True)
+    # Нормализованный скор из core/services/scoring.py (forwards / медиана канала за
+    # 7 дней) — заполняется на каждом контрольном снапшоте, финальное значение перед
+    # выбором в SELECTED берётся из последнего доступного core/models/metrics_snapshot.py.
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    # Self-FK: если дедуп находит более ранний кандидат с cosine similarity выше
+    # HIGH_SIMILARITY_THRESHOLD, текущий помечается DUPLICATE и указывает на
+    # representative (обычно — на кандидата с более высоким score).
+    duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("candidate_posts.id", ondelete="SET NULL"), nullable=True
+    )
+    selected_post_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("post_versions.id", ondelete="SET NULL"), nullable=True
+    )
+
+    source_channel: Mapped["SourceChannel"] = relationship(back_populates="candidate_posts")
+    versions: Mapped[list["PostVersion"]] = relationship(
+        back_populates="candidate_post", foreign_keys="PostVersion.candidate_post_id"
+    )

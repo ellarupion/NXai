@@ -1,0 +1,9 @@
+Generic single-database configuration (async, SQLAlchemy 2.0).
+
+Первую миграцию нужно сгенерировать после того, как поднята БД:
+
+    docker compose up -d postgres
+    docker compose run --rm migrate alembic revision --autogenerate -m "initial schema"
+    docker compose run --rm migrate alembic upgrade head
+
+См. ROADMAP.md Phase 1.
