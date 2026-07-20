@@ -10,9 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.theme import Theme
+from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
-router = APIRouter(prefix="/themes", tags=["themes"])
+router = APIRouter(prefix="/themes", tags=["themes"], dependencies=[Depends(get_current_admin)])
 
 
 class ThemeOut(BaseModel):

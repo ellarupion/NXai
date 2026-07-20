@@ -13,9 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.source_channel import SourceChannel
+from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
-router = APIRouter(prefix="/source-channels", tags=["source-channels"])
+router = APIRouter(
+    prefix="/source-channels", tags=["source-channels"], dependencies=[Depends(get_current_admin)]
+)
 
 
 class SourceChannelOut(BaseModel):
