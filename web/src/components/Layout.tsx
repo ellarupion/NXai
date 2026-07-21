@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: "/themes", label: "Темы" },
   { to: "/source-channels", label: "Источники" },
   { to: "/telethon-sessions", label: "Аккаунты" },
+  { to: "/target-channels", label: "Каналы" },
   { to: "/bots", label: "Боты" },
   { to: "/settings", label: "Настройки" },
 ];

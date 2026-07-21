@@ -16,6 +16,9 @@ const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m
 const TelethonSessions = lazy(() =>
   import("./pages/TelethonSessions").then((m) => ({ default: m.TelethonSessions })),
 );
+const TargetChannels = lazy(() =>
+  import("./pages/TargetChannels").then((m) => ({ default: m.TargetChannels })),
+);
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -41,6 +44,7 @@ function AppRoutes() {
           <Route path="/themes" element={<Themes />} />
           <Route path="/source-channels" element={<SourceChannels />} />
           <Route path="/telethon-sessions" element={<TelethonSessions />} />
+          <Route path="/target-channels" element={<TargetChannels />} />
           <Route path="/bots" element={<Bots />} />
           <Route path="/settings" element={<Settings />} />
         </Route>

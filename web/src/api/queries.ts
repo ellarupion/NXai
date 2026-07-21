@@ -1,5 +1,13 @@
 import { api } from "./client";
-import type { ChannelBot, Me, SettingsStatus, SourceChannel, TelethonSession, Theme } from "../types";
+import type {
+  ChannelBot,
+  Me,
+  SettingsStatus,
+  SourceChannel,
+  TargetChannel,
+  TelethonSession,
+  Theme,
+} from "../types";
 
 export const meQuery = () => ({
   queryKey: ["me"],
@@ -30,4 +38,9 @@ export const settingsQuery = () => ({
 export const telethonSessionsQuery = () => ({
   queryKey: ["telethon-sessions"],
   queryFn: () => api.get<TelethonSession[]>("/telethon-sessions"),
+});
+
+export const targetChannelsQuery = () => ({
+  queryKey: ["target-channels"],
+  queryFn: () => api.get<TargetChannel[]>("/target-channels"),
 });

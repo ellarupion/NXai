@@ -14,8 +14,18 @@ export interface SourceChannel {
   tg_chat_id: number | null;
   title: string;
   theme_id: string | null;
+  ingest_session_id: string | null;
   is_active: boolean;
   trust_score: number;
+}
+
+export interface TargetChannel {
+  id: string;
+  theme_id: string;
+  tg_chat_id: number;
+  title: string;
+  signature: string;
+  is_active: boolean;
 }
 
 export interface Me {
