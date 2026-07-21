@@ -71,14 +71,18 @@ async def backfill_source_channel(
     now = datetime.now(timezone.utc)
     received = 0
     for message in messages:
-        if not message.text:
+        # Раньше пропускали всё без текста; теперь пост-картинка (с подписью или
+        # вовсе без текста) тоже кандидат (аудит, п.5.1).
+        if not message.text and not message.has_photo:
             continue
         candidate_id = await ingest.receive_post(
             IncomingCandidate(
                 source_channel_tg_chat_id=source_channel.tg_chat_id,
                 tg_message_id=message.tg_message_id,
-                text=message.text,
+                text=message.text or "",
                 posted_at=message.posted_at,
+                has_media=message.has_photo,
+                media_group_id=message.grouped_id,
             )
         )
         if candidate_id is None:

@@ -72,7 +72,10 @@ async def run_session_worker(telethon_session: TelethonSession, settings: Settin
 
     @client.on(events.NewMessage(chats=source_chat_ids))
     async def _on_new_message(event) -> None:  # noqa: ANN001 — telethon event type
-        if not event.raw_text:
+        has_photo = event.message.photo is not None
+        # Пропускаем только совсем пустые апдейты (сервисные сообщения и т.п.);
+        # пост-картинку с подписью/без текста принимаем (аудит, п.5.1).
+        if not event.raw_text and not has_photo:
             return
         session_factory = get_session_factory()
         async with session_factory() as session:
@@ -80,8 +83,10 @@ async def run_session_worker(telethon_session: TelethonSession, settings: Settin
                 IncomingCandidate(
                     source_channel_tg_chat_id=event.chat_id,
                     tg_message_id=event.id,
-                    text=event.raw_text,
+                    text=event.raw_text or "",
                     posted_at=event.message.date,
+                    has_media=has_photo,
+                    media_group_id=event.message.grouped_id,
                 )
             )
             await session.commit()

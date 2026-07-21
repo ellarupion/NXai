@@ -37,6 +37,8 @@ class IncomingCandidate:
     # core/services/scoring.py) отсчитываются от first_seen_at, и без реальной
     # даты бэкфильнутый вчерашний пост выглядел бы «только что увиденным».
     posted_at: datetime | None = None
+    has_media: bool = False
+    media_group_id: int | None = None
 
 
 class IngestCandidatesService:
@@ -71,6 +73,8 @@ class IngestCandidatesService:
             raw_text=post.text,
             first_seen_at=post.posted_at or datetime.now(timezone.utc),
             status=CandidatePostStatus.NEW,
+            has_media=post.has_media,
+            media_group_id=post.media_group_id,
         )
         self.session.add(candidate)
         try:

@@ -109,6 +109,7 @@ export interface PendingReviewPost {
   rewritten_text: string;
   score: number | null;
   created_at: string;
+  has_media: boolean;
 }
 
 export type PoolPostStatus = "ready" | "used";

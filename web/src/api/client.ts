@@ -58,6 +58,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return handleResponse<T>(response, Boolean(token));
 }
 
+// Тянет бинарный ответ (например, превью медиа) с тем же токеном и возвращает
+// object URL для <img src>. img не умеет слать Authorization-заголовок, поэтому
+// качаем через fetch как blob. Вызывающий обязан URL.revokeObjectURL после.
+async function getObjectUrl(path: string): Promise<string> {
+  const token = getToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${path}`, { headers });
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -65,4 +80,5 @@ export const api = {
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  getObjectUrl,
 };

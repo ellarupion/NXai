@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,16 @@ class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     tg_message_id: Mapped[int] = mapped_column(BigInteger)
     raw_text: Mapped[str] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    # Медиа НЕ храним байтами: держим ссылку (source_channel + tg_message_id уже
+    # есть) и докачиваем фото через Telethon-сессию источника в момент публикации
+    # (core/services/media.py), затем отправляем ботом. has_media=True ставится на
+    # ingest'е, если у поста было фото — без этого пост-картинка с подписью
+    # проходил бы мимо пайплайна (аудит, п.5.1). media_group_id — id альбома
+    # Telegram (grouped_id): у альбома несколько tg-сообщений с общим id, при
+    # публикации собираем все фото группы.
+    has_media: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    media_group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     status: Mapped[CandidatePostStatus] = mapped_column(default=CandidatePostStatus.NEW, index=True)
     # Нормализованный скор из core/services/scoring.py (forwards / медиана канала за

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { pendingReviewQuery, themesQuery } from "../api/queries";
@@ -84,6 +84,39 @@ function GenerateForm() {
   );
 }
 
+function MediaPreview({ candidateId }: { candidateId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    api
+      .getObjectUrl(`/candidates/${candidateId}/media`)
+      .then((u) => {
+        if (cancelled) {
+          URL.revokeObjectURL(u);
+          return;
+        }
+        objectUrl = u;
+        setUrl(u);
+      })
+      .catch(() => setFailed(true));
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [candidateId]);
+
+  if (failed) {
+    return <p className="text-xs text-ink-muted">Фото недоступно (пост в источнике мог быть удалён).</p>;
+  }
+  if (!url) {
+    return <p className="text-xs text-ink-muted">Загрузка фото…</p>;
+  }
+  return <img src={url} alt="Медиа поста" className="max-h-64 w-auto rounded-lg" />;
+}
+
 function PendingReviewCard({ post }: { post: PendingReviewPost }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -126,13 +159,22 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-ink">{post.source_channel_title}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-ink">{post.source_channel_title}</span>
+          {post.has_media && (
+            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted">
+              📷 с фото
+            </span>
+          )}
+        </div>
         {post.score !== null && (
           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted whitespace-nowrap">
             score {post.score.toFixed(2)}
           </span>
         )}
       </div>
+
+      {post.has_media && <MediaPreview candidateId={post.candidate_id} />}
 
       {editing ? (
         <>

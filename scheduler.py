@@ -41,6 +41,7 @@ from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.effective_settings import get_effective_settings
 from core.services.heartbeat import WORKER_SCHEDULER, record_heartbeat
+from core.services.media import download_candidate_photos
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
 from core.services.rewrite import RewriteService
@@ -267,6 +268,8 @@ async def publish_pool_job() -> None:
         panel_settings = await get_or_create_panel_settings(session)
         tz = resolve_zoneinfo(panel_settings.timezone)
         pool_cooldown_days = panel_settings.pool_cooldown_days
+        # Telegram-креды для докачки медиа кандидатов (core/services/media.py).
+        settings = await get_effective_settings(session)
 
         result = await session.execute(
             select(ChannelBot.id).where(
@@ -315,8 +318,17 @@ async def publish_pool_job() -> None:
                     # Публикуем во ВСЕ активные целевые каналы темы, а не только
                     # в первый (аудит, баг №5).
                     if next_post.kind == "candidate":
+                        # Если у поста было фото — докачиваем его из источника и
+                        # публикуем с картинкой (аудит, п.5.2); при неудаче
+                        # download вернёт [], пост уйдёт текстом.
+                        candidate = await session.get(CandidatePost, next_post.id)
+                        photos = (
+                            await download_candidate_photos(session, candidate, settings)
+                            if candidate and candidate.has_media
+                            else []
+                        )
                         await publisher.publish_candidate_to_channels(
-                            bot, next_post.id, target_channel_ids
+                            bot, next_post.id, target_channel_ids, photos=photos
                         )
                     else:
                         await publisher.publish_pool_post_to_channels(

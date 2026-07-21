@@ -6,7 +6,7 @@ REWRITTEN-кандидатом, доступным штатному автопа
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
 from core.services.effective_settings import get_effective_settings
 from core.services.force_generate import ForceGenerateError, ForceGenerateService
+from core.services.media import download_candidate_photos_by_id
 from core.services.review import (
     ReviewError,
     approve_candidate,
@@ -51,6 +52,7 @@ class PendingReviewOut(BaseModel):
     rewritten_text: str
     score: float | None
     created_at: datetime
+    has_media: bool
 
 
 @router.post("/generate", response_model=list[GeneratedPostOut])
@@ -96,6 +98,7 @@ async def list_pending_review(
             rewritten_text=post_version.rewritten_text,
             score=candidate.score,
             created_at=candidate.created_at,
+            has_media=candidate.has_media,
         )
         for candidate, source_channel, post_version in result.all()
     ]
@@ -114,6 +117,21 @@ async def edit_text(
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await session.commit()
+
+
+@router.get("/{candidate_id}/media")
+async def get_candidate_media(
+    candidate_id: UUID, session: AsyncSession = Depends(get_db)
+) -> Response:
+    """Превью медиа кандидата в Review (аудит, п.5.3): качает первое фото из
+    источника через его Telethon-сессию и отдаёт как image/jpeg. Байты нигде
+    не кэшируются — тянутся по запросу страницы; для очереди на одобрение
+    (единицы постов) это приемлемо."""
+    settings = await get_effective_settings(session)
+    photos = await download_candidate_photos_by_id(session, candidate_id, settings)
+    if not photos:
+        raise HTTPException(status_code=404, detail="У поста нет доступного медиа")
+    return Response(content=photos[0], media_type="image/jpeg")
 
 
 @router.post("/{candidate_id}/approve", status_code=204)

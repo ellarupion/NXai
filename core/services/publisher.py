@@ -12,7 +12,7 @@ from uuid import UUID
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import LinkPreviewOptions
+from aiogram.types import BufferedInputFile, InputMediaPhoto, LinkPreviewOptions
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
@@ -29,18 +29,21 @@ logger = get_logger(__name__)
 # заметно короче (core/services/rewrite.py), но LLM это не гарантия — перед
 # отправкой обрезаем защитно, иначе send_message падает и публикация теряется.
 TELEGRAM_MAX_TEXT = 4096
+# Подпись к фото/альбому у Bot API ограничена жёстче обычного сообщения.
+TELEGRAM_MAX_CAPTION = 1024
 TRUNCATION_ELLIPSIS = "…"
 
 
-def fit_to_telegram_limit(text: str, signature: str = "") -> str:
-    """Собирает текст с подписью и, если он не влезает в лимит Telegram,
-    обрезает ОСНОВНОЙ текст по границе слова (подпись сохраняется целиком)."""
+def fit_to_telegram_limit(text: str, signature: str = "", max_len: int = TELEGRAM_MAX_TEXT) -> str:
+    """Собирает текст с подписью и, если он не влезает в лимит, обрезает
+    ОСНОВНОЙ текст по границе слова (подпись сохраняется целиком). max_len —
+    лимит: обычное сообщение (4096) или подпись к медиа (1024)."""
     full = f"{text}\n\n{signature}" if signature else text
-    if len(full) <= TELEGRAM_MAX_TEXT:
+    if len(full) <= max_len:
         return full
 
     overhead = (len(signature) + 2 if signature else 0) + len(TRUNCATION_ELLIPSIS)
-    budget = TELEGRAM_MAX_TEXT - overhead
+    budget = max_len - overhead
     cut = text[:budget]
     last_space = cut.rfind(" ")
     if last_space > budget // 2:
@@ -69,6 +72,32 @@ async def _send_post(bot: Bot, chat_id: int, text: str):
         )
 
 
+async def _send_post_with_photos(bot: Bot, chat_id: int, caption: str, photos: list[bytes]):
+    """Публикация с фото (аудит, п.5.2): одно фото — send_photo, несколько —
+    send_media_group (подпись только на первом фото). Тот же фолбэк с parse_mode,
+    что и у текста. Возвращает первое отправленное сообщение (его message_id
+    идёт в Publication)."""
+    files = [BufferedInputFile(data, filename=f"photo_{i}.jpg") for i, data in enumerate(photos)]
+
+    async def _send(parse_mode):
+        if len(files) == 1:
+            return await bot.send_photo(chat_id, files[0], caption=caption, parse_mode=parse_mode)
+        media = [
+            InputMediaPhoto(media=f, caption=caption if i == 0 else None, parse_mode=parse_mode)
+            for i, f in enumerate(files)
+        ]
+        messages = await bot.send_media_group(chat_id, media)
+        return messages[0]
+
+    try:
+        return await _send(ParseMode.MARKDOWN)
+    except TelegramBadRequest as exc:
+        if "parse" not in str(exc).lower():
+            raise
+        logger.warning("publisher.caption_markdown_failed_fallback_plain", chat_id=chat_id)
+        return await _send(None)
+
+
 class NotPublishableError(Exception):
     pass
 
@@ -88,13 +117,17 @@ class PublisherService:
         return publications[0]
 
     async def publish_candidate_to_channels(
-        self, bot: Bot, candidate_id: UUID, target_channel_ids: list[UUID]
+        self, bot: Bot, candidate_id: UUID, target_channel_ids: list[UUID],
+        photos: list[bytes] | None = None,
     ) -> list[Publication]:
         """Публикует рерайт кандидата во ВСЕ переданные целевые каналы темы
         (аудит, баг №5: раньше публиковалось только в target_channels[0], и
         вторые каналы темы никогда ничего не получали). Статус кандидата
         переводится в PUBLISHED один раз после отправки во все каналы —
-        каждый канал получает свою строку Publication."""
+        каждый канал получает свою строку Publication.
+
+        photos — уже скачанные байты фото (аудит, п.5.2): если заданы, пост
+        уходит как фото/альбом с рерайтом в подписи, иначе обычным текстом."""
         candidate = await self.session.get(CandidatePost, candidate_id, with_for_update=True)
         if candidate is None:
             raise ValueError(f"CandidatePost {candidate_id} not found")
@@ -108,8 +141,15 @@ class PublisherService:
         publications: list[Publication] = []
         for target_channel_id in target_channel_ids:
             target_channel = await self._get_target_channel(target_channel_id)
-            text = fit_to_telegram_limit(post_version.rewritten_text, target_channel.signature)
-            message = await _send_post(bot, target_channel.tg_chat_id, text)
+            if photos:
+                # У подписи к медиа лимит жёстче (1024).
+                caption = fit_to_telegram_limit(
+                    post_version.rewritten_text, target_channel.signature, TELEGRAM_MAX_CAPTION
+                )
+                message = await _send_post_with_photos(bot, target_channel.tg_chat_id, caption, photos)
+            else:
+                text = fit_to_telegram_limit(post_version.rewritten_text, target_channel.signature)
+                message = await _send_post(bot, target_channel.tg_chat_id, text)
             publication = Publication(
                 target_channel_id=target_channel.id,
                 source=PublicationSource.CANDIDATE,
@@ -123,6 +163,7 @@ class PublisherService:
                 "publisher.candidate_published",
                 candidate_id=str(candidate.id),
                 target_channel_id=str(target_channel.id),
+                with_media=bool(photos),
             )
 
         candidate.status = CandidatePostStatus.PUBLISHED

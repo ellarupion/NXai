@@ -41,6 +41,13 @@ class ChannelHistoryMessage:
     # сравнивать их с "форвардами за первые часы" свежих постов нечестно
     # (core/services/backfill.py решает по этой дате, скорить ли пост вообще).
     posted_at: datetime | None
+    has_photo: bool = False
+
+
+@dataclass(frozen=True)
+class DownloadedMedia:
+    data: bytes
+    mime_type: str
 
 
 class SourceStatsClient:
@@ -114,7 +121,39 @@ class SourceStatsClient:
             views=message.views,
             forwards=message.forwards,
             posted_at=message.date,
+            has_photo=message.photo is not None,
         )
+
+    async def download_post_photos(
+        self, chat_id: int, message_id: int, grouped_id: int | None = None, max_items: int = 10
+    ) -> list[DownloadedMedia]:
+        """Скачивает фото поста в память для последующей публикации ботом
+        (аудит, п.5.2). Если это альбом (grouped_id задан), собирает все фото
+        группы: в Telegram альбом — несколько сообщений с общим grouped_id
+        вокруг message_id, поэтому берём окно соседних сообщений и фильтруем по
+        группе. Видео/документы пока пропускаем — область этапа только фото."""
+        if self._client is None:
+            raise RuntimeError("SourceStatsClient не подключён — вызовите connect() сначала")
+
+        if grouped_id is None:
+            messages = [await self._client.get_messages(chat_id, ids=message_id)]
+        else:
+            # Окно вокруг message_id — сообщения альбома идут подряд.
+            window_ids = list(range(message_id - max_items, message_id + max_items + 1))
+            fetched = await self._client.get_messages(chat_id, ids=window_ids)
+            messages = [m for m in fetched if m is not None and m.grouped_id == grouped_id]
+            messages.sort(key=lambda m: m.id)
+
+        photos: list[DownloadedMedia] = []
+        for message in messages:
+            if message is None or message.photo is None:
+                continue
+            data = await message.download_media(file=bytes)
+            if data:
+                photos.append(DownloadedMedia(data=data, mime_type="image/jpeg"))
+            if len(photos) >= max_items:
+                break
+        return photos
 
     async def __aenter__(self) -> "SourceStatsClient":
         await self.connect()
