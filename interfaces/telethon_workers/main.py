@@ -28,6 +28,10 @@ from core.services.ingest_candidates import IncomingCandidate, IngestCandidatesS
 
 logger = get_logger(__name__)
 
+SUPERVISOR_BACKOFF_INITIAL_SECONDS = 5
+SUPERVISOR_BACKOFF_MAX_SECONDS = 300
+SUPERVISOR_STABLE_UPTIME_SECONDS = 600
+
 
 async def _source_chat_ids_for(session_id) -> list[int]:
     session_factory = get_session_factory()
@@ -65,6 +69,7 @@ async def run_session_worker(telethon_session: TelethonSession, settings: Settin
                     source_channel_tg_chat_id=event.chat_id,
                     tg_message_id=event.id,
                     text=event.raw_text,
+                    posted_at=event.message.date,
                 )
             )
             await session.commit()
@@ -74,6 +79,34 @@ async def run_session_worker(telethon_session: TelethonSession, settings: Settin
         "telethon_worker.started", session_label=telethon_session.label, channel_count=len(source_chat_ids)
     )
     await client.run_until_disconnected()
+
+
+async def supervise_session_worker(telethon_session: TelethonSession, settings: Settings) -> None:
+    """Перезапуск с бэкоффом — одна разлогиненная/сбойная сессия не роняет
+    чтение остальных (раньше gather падал целиком по первому исключению)."""
+    backoff = SUPERVISOR_BACKOFF_INITIAL_SECONDS
+    loop = asyncio.get_event_loop()
+    while True:
+        started_at = loop.time()
+        try:
+            await run_session_worker(telethon_session, settings)
+            # run_session_worker возвращается без исключения, только если у
+            # сессии нет назначенных каналов — рестартовать нечего.
+            logger.info("telethon_worker.no_channels_exit", session_label=telethon_session.label)
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("telethon_worker.crashed", session_label=telethon_session.label)
+        if loop.time() - started_at > SUPERVISOR_STABLE_UPTIME_SECONDS:
+            backoff = SUPERVISOR_BACKOFF_INITIAL_SECONDS
+        logger.info(
+            "telethon_worker.restart_scheduled",
+            session_label=telethon_session.label,
+            backoff_seconds=backoff,
+        )
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, SUPERVISOR_BACKOFF_MAX_SECONDS)
 
 
 async def main() -> None:
@@ -93,7 +126,7 @@ async def main() -> None:
         logger.warning("telethon_worker.no_active_sessions")
         return
 
-    await asyncio.gather(*(run_session_worker(ts, effective_settings) for ts in telethon_sessions))
+    await asyncio.gather(*(supervise_session_worker(ts, effective_settings) for ts in telethon_sessions))
 
 
 if __name__ == "__main__":

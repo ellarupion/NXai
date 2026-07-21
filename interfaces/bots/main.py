@@ -22,6 +22,12 @@ from interfaces.bots.handlers import router
 
 logger = get_logger(__name__)
 
+SUPERVISOR_BACKOFF_INITIAL_SECONDS = 5
+SUPERVISOR_BACKOFF_MAX_SECONDS = 300
+# Проработал дольше этого — считаем запуск успешным и сбрасываем бэкофф
+# (иначе бот, падающий раз в час, докрутил бы паузу до максимума навсегда).
+SUPERVISOR_STABLE_UPTIME_SECONDS = 600
+
 
 async def run_bot(channel_bot: ChannelBot) -> None:
     bot = Bot(token=channel_bot.bot_token)
@@ -34,6 +40,31 @@ async def run_bot(channel_bot: ChannelBot) -> None:
 
     logger.info("bots.polling_started", channel_bot_id=str(channel_bot.id), role=channel_bot.role.value)
     await dispatcher.start_polling(bot)
+
+
+async def supervise_bot(channel_bot: ChannelBot) -> None:
+    """Перезапуск с экспоненциальным бэкоффом: один бот с отозванным токеном
+    или сетевой ошибкой не должен ронять весь процесс (и ad watchdog остальных
+    тем вместе с ним) — раньше asyncio.gather падал целиком по первому
+    исключению."""
+    backoff = SUPERVISOR_BACKOFF_INITIAL_SECONDS
+    loop = asyncio.get_event_loop()
+    while True:
+        started_at = loop.time()
+        try:
+            await run_bot(channel_bot)
+            logger.warning("bots.polling_stopped", channel_bot_id=str(channel_bot.id))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("bots.polling_crashed", channel_bot_id=str(channel_bot.id))
+        if loop.time() - started_at > SUPERVISOR_STABLE_UPTIME_SECONDS:
+            backoff = SUPERVISOR_BACKOFF_INITIAL_SECONDS
+        logger.info(
+            "bots.polling_restart_scheduled", channel_bot_id=str(channel_bot.id), backoff_seconds=backoff
+        )
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, SUPERVISOR_BACKOFF_MAX_SECONDS)
 
 
 async def main() -> None:
@@ -49,7 +80,7 @@ async def main() -> None:
         logger.warning("bots.no_active_bots")
         return
 
-    await asyncio.gather(*(run_bot(channel_bot) for channel_bot in channel_bots))
+    await asyncio.gather(*(supervise_bot(channel_bot) for channel_bot in channel_bots))
 
 
 if __name__ == "__main__":

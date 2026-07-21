@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
+from telethon.errors import FloodWaitError
 
 from core.config import get_settings
 from core.db import get_session_factory
@@ -72,9 +73,16 @@ async def backfill_job() -> None:
         )
         source_channels = list(result.scalars().all())
 
+        # Коммит на каждый источник, а не в конце тика: сбой на N-м канале не
+        # должен терять уже докачанное с первых N-1 (тот же принцип во всех
+        # джобах этого файла — см. аудит, К4).
         for source_channel in source_channels:
-            received_total += await backfill_source_channel(session, source_channel, settings)
-        await session.commit()
+            try:
+                received_total += await backfill_source_channel(session, source_channel, settings)
+                await session.commit()
+            except Exception:
+                logger.exception("scheduler.backfill_source_failed", source_channel_id=str(source_channel.id))
+                await session.rollback()
 
     if received_total:
         logger.info("scheduler.backfill_done", received=received_total)
@@ -107,34 +115,68 @@ async def score_refresh_job() -> None:
         settings = await get_effective_settings(session)
 
         stats_clients: dict[str, SourceStatsClient] = {}
+        # Сессии, поймавшие FloodWait в этом тике: их кандидатов пропускаем до
+        # следующего тика (через 10 минут), а не молотим дальше, усугубляя бан.
+        flooded_sessions: set[str] = set()
+        # Идентификаторы вытаскиваем ДО цикла: commit/rollback per-candidate
+        # экспайрит ORM-объекты, и последующий доступ к их атрибутам
+        # (candidate.source_channel_id и т.п.) вызвал бы ленивую подгрузку —
+        # синхронное IO под asyncpg падает MissingGreenlet. Внутри цикла
+        # работаем со скалярами и заново берём объект через session.get.
+        due_ids = [c.id for c in due]
         try:
-            for candidate in due:
-                source_channel = await session.get(SourceChannel, candidate.source_channel_id)
-                if source_channel is None or source_channel.ingest_session_id is None:
-                    continue
-
-                session_id = str(source_channel.ingest_session_id)
-                if session_id not in stats_clients:
-                    telethon_session = await session.get(TelethonSession, source_channel.ingest_session_id)
-                    if telethon_session is None:
+            for candidate_id in due_ids:
+                try:
+                    candidate = await session.get(CandidatePost, candidate_id)
+                    if candidate is None:
                         continue
-                    client = SourceStatsClient(telethon_session.session_string, settings)
-                    await client.connect()
-                    stats_clients[session_id] = client
+                    source_channel = await session.get(SourceChannel, candidate.source_channel_id)
+                    if source_channel is None or source_channel.ingest_session_id is None:
+                        continue
 
-                stats = await stats_clients[session_id].get_post_stats(
-                    source_channel.tg_chat_id, candidate.tg_message_id
-                )
-                if stats is None:
-                    continue
-                await scoring.record_snapshot(candidate.id, stats, datetime.now(timezone.utc))
-                if not await scoring.promote_if_selected(candidate.id):
-                    await scoring.reject_if_matured(candidate)
-                scored += 1
+                    session_id = str(source_channel.ingest_session_id)
+                    if session_id in flooded_sessions:
+                        continue
+                    if session_id not in stats_clients:
+                        telethon_session = await session.get(
+                            TelethonSession, source_channel.ingest_session_id
+                        )
+                        if telethon_session is None:
+                            continue
+                        client = SourceStatsClient(telethon_session.session_string, settings)
+                        await client.connect()
+                        stats_clients[session_id] = client
+
+                    stats = await stats_clients[session_id].get_post_stats(
+                        source_channel.tg_chat_id, candidate.tg_message_id
+                    )
+                    if stats is None:
+                        continue
+                    await scoring.record_snapshot(candidate.id, stats, datetime.now(timezone.utc))
+                    if not await scoring.promote_if_selected(candidate.id):
+                        await scoring.reject_if_matured(candidate)
+                    scored += 1
+                    # Коммит на кандидата: одна ошибка дальше по списку не
+                    # откатывает уже записанные снапшоты этого тика.
+                    await session.commit()
+                except FloodWaitError as exc:
+                    await session.rollback()
+                    # ingest_session_id уже строка выше — но после rollback объект
+                    # экспайрен, поэтому в set кладём заранее вычисленный session_id.
+                    flooded_sessions.add(session_id)
+                    logger.warning(
+                        "scheduler.score_refresh_flood_wait",
+                        session_id=session_id,
+                        wait_seconds=exc.seconds,
+                    )
+                except Exception:
+                    await session.rollback()
+                    logger.exception(
+                        "scheduler.score_refresh_candidate_failed", candidate_id=str(candidate_id)
+                    )
         finally:
             for client in stats_clients.values():
                 await client.disconnect()
-        await session.commit()
 
     if scored:
         logger.info("scheduler.score_refresh_done", scored=scored)
@@ -155,38 +197,46 @@ async def dedup_and_rewrite_job() -> None:
         embeddings = EmbeddingsClient(settings)
 
         result = await session.execute(
-            select(CandidatePost, SourceChannel)
+            select(CandidatePost.id, SourceChannel.theme_id)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
             .where(CandidatePost.status == CandidatePostStatus.SELECTED)
         )
-        rows = result.all()
+        # Скаляры, а не ORM-объекты: commit/rollback per-candidate экспайрит
+        # объекты, и повторный доступ к их атрибутам ленивой подгрузкой упал бы
+        # MissingGreenlet под asyncpg (та же причина, что в score_refresh_job).
+        rows = [(candidate_id, theme_id) for candidate_id, theme_id in result.all()]
 
         dedup = DedupService(session, embeddings)
         rewrite = RewriteService(session, llm, embeddings)
-        for candidate, source_channel in rows:
-            if source_channel.theme_id is None:
+        for candidate_id, theme_id in rows:
+            if theme_id is None:
                 continue
-            duplicate_of = await dedup.resolve_duplicates(candidate.id, source_channel.theme_id)
-            if duplicate_of is not None:
-                continue
-
-            channel_bot_result = await session.execute(
-                select(ChannelBot).where(
-                    ChannelBot.theme_id == source_channel.theme_id, ChannelBot.role == BotRole.THEME
-                )
-            )
-            channel_bot = channel_bot_result.scalar_one_or_none()
-            persona_prompt = channel_bot.persona_prompt if channel_bot else ""
+            # try/except покрывает и дедуп (Voyage API умеет падать так же, как
+            # LLM), и рерайт; коммит на кандидата — ошибка на одном не теряет
+            # уже готовые рерайты этого тика.
             try:
-                await rewrite.generate(candidate.id, persona_prompt)
+                duplicate_of = await dedup.resolve_duplicates(candidate_id, theme_id)
+                if duplicate_of is not None:
+                    await session.commit()
+                    continue
+
+                channel_bot_result = await session.execute(
+                    select(ChannelBot).where(
+                        ChannelBot.theme_id == theme_id, ChannelBot.role == BotRole.THEME
+                    )
+                )
+                channel_bot = channel_bot_result.scalar_one_or_none()
+                persona_prompt = channel_bot.persona_prompt if channel_bot else ""
+                await rewrite.generate(candidate_id, persona_prompt)
                 rewritten += 1
+                await session.commit()
             except Exception as exc:
-                logger.exception("scheduler.rewrite_failed", candidate_id=str(candidate.id))
-                theme = await session.get(Theme, source_channel.theme_id)
+                await session.rollback()
+                logger.exception("scheduler.rewrite_failed", candidate_id=str(candidate_id))
+                theme = await session.get(Theme, theme_id)
                 await _notify_admin(
                     session, format_error(theme.name if theme else "", "рерайте", str(exc))
                 )
-        await session.commit()
 
     if rewritten:
         logger.info("scheduler.dedup_and_rewrite_done", rewritten=rewritten)
@@ -201,16 +251,25 @@ async def publish_pool_job() -> None:
     published = 0
     async with session_factory() as session:
         result = await session.execute(
-            select(ChannelBot).where(ChannelBot.role == BotRole.THEME, ChannelBot.is_active.is_(True))
+            select(ChannelBot.id).where(
+                ChannelBot.role == BotRole.THEME, ChannelBot.is_active.is_(True)
+            )
         )
-        theme_bots = list(result.scalars().all())
+        # Скаляры + re-get внутри цикла: per-bot commit/rollback экспайрит
+        # ORM-объекты, дальнейший доступ к атрибутам упал бы MissingGreenlet.
+        bot_ids = [bot_id for (bot_id,) in result.all()]
 
-        for channel_bot in theme_bots:
-            if channel_bot.theme_id is None:
+        for bot_id in bot_ids:
+            channel_bot = await session.get(ChannelBot, bot_id)
+            if channel_bot is None or channel_bot.theme_id is None:
                 continue
+            theme_id = channel_bot.theme_id
+            cadence = channel_bot.cadence
+            bot_token = channel_bot.bot_token
+
             target_result = await session.execute(
                 select(TargetChannel).where(
-                    TargetChannel.theme_id == channel_bot.theme_id, TargetChannel.is_active.is_(True)
+                    TargetChannel.theme_id == theme_id, TargetChannel.is_active.is_(True)
                 )
             )
             target_channels = list(target_result.scalars().all())
@@ -218,40 +277,45 @@ async def publish_pool_job() -> None:
                 continue
 
             last_publication = await _last_publication_at(session, [tc.id for tc in target_channels])
-            if not is_due(channel_bot.cadence, last_publication):
+            if not is_due(cadence, last_publication):
                 continue
 
-            next_post = await SchedulerPoolService(session).pick_next(channel_bot.theme_id)
+            next_post = await SchedulerPoolService(session).pick_next(theme_id)
             if next_post is None:
                 continue
 
-            async with Bot(token=channel_bot.bot_token) as bot:
+            async with Bot(token=bot_token) as bot:
                 publisher = PublisherService(session)
                 target_channel = target_channels[0]
-                theme = await session.get(Theme, channel_bot.theme_id)
+                theme = await session.get(Theme, theme_id)
+                theme_name = theme.name if theme else ""
+                target_title = target_channel.title
                 try:
                     preview_text = await _preview_text_for(session, next_post)
                     if next_post.kind == "candidate":
                         await publisher.publish_candidate(bot, next_post.id, target_channel.id)
                     else:
                         await publisher.publish_pool_post(bot, next_post.id, target_channel.id)
+                    # Коммит СРАЗУ после успешной отправки, до уведомлений: пост
+                    # уже в Telegram, и незакоммиченная Publication — это (а) дубль
+                    # при рестарте процесса и (б) окно гонки, в котором ad watchdog
+                    # принимает собственную публикацию за чужую (аудит, К1).
+                    await session.commit()
                     published += 1
                     await _notify_admin(
                         session,
                         format_published(
                             PublishedNotification(
-                                theme_name=theme.name if theme else "",
-                                target_channel_title=target_channel.title,
+                                theme_name=theme_name,
+                                target_channel_title=target_title,
                                 preview_text=preview_text,
                             )
                         ),
                     )
                 except Exception as exc:
-                    logger.exception("scheduler.publish_failed", channel_bot_id=str(channel_bot.id))
-                    await _notify_admin(
-                        session, format_error(theme.name if theme else "", "публикации", str(exc))
-                    )
-        await session.commit()
+                    await session.rollback()
+                    logger.exception("scheduler.publish_failed", channel_bot_id=str(bot_id))
+                    await _notify_admin(session, format_error(theme_name, "публикации", str(exc)))
 
     if published:
         logger.info("scheduler.publish_pool_done", published=published)
@@ -262,44 +326,63 @@ async def ad_watchdog_job() -> None:
     covered = 0
     async with session_factory() as session:
         result = await session.execute(
-            select(AdDetection).where(AdDetection.action == AdDetectionAction.PENDING)
+            select(AdDetection.id).where(AdDetection.action == AdDetectionAction.PENDING)
         )
-        pending = list(result.scalars().all())
+        # Скаляры + re-get: commit/rollback per-detection экспайрит объекты.
+        detection_ids = [det_id for (det_id,) in result.all()]
 
-        for detection in pending:
-            target_channel = await session.get(TargetChannel, detection.target_channel_id)
-            if target_channel is None:
-                continue
-            channel_bot_result = await session.execute(
-                select(ChannelBot).where(
-                    ChannelBot.theme_id == target_channel.theme_id, ChannelBot.role == BotRole.THEME
-                )
-            )
-            channel_bot = channel_bot_result.scalar_one_or_none()
-            if channel_bot is None:
-                continue
-
-            async with Bot(token=channel_bot.bot_token) as bot:
-                if await cover_if_due(session, bot, detection.id):
-                    covered += 1
-                    preview_text = ""
-                    if detection.covering_publication_id is not None:
-                        publication = await session.get(Publication, detection.covering_publication_id)
-                        if publication is not None and publication.pool_post_id is not None:
-                            pool_post = await session.get(PoolPost, publication.pool_post_id)
-                            preview_text = pool_post.text if pool_post else ""
-                    theme = await session.get(Theme, target_channel.theme_id)
-                    await _notify_admin(
-                        session,
-                        format_ad_covered(
-                            AdCoveredNotification(
-                                theme_name=theme.name if theme else "",
-                                target_channel_title=target_channel.title,
-                                covering_preview_text=preview_text,
-                            )
-                        ),
+        for detection_id in detection_ids:
+            try:
+                detection = await session.get(AdDetection, detection_id)
+                if detection is None:
+                    continue
+                target_channel = await session.get(TargetChannel, detection.target_channel_id)
+                if target_channel is None:
+                    continue
+                theme_id = target_channel.theme_id
+                target_title = target_channel.title
+                channel_bot_result = await session.execute(
+                    select(ChannelBot).where(
+                        ChannelBot.theme_id == theme_id, ChannelBot.role == BotRole.THEME
                     )
-        await session.commit()
+                )
+                channel_bot = channel_bot_result.scalar_one_or_none()
+                if channel_bot is None:
+                    continue
+
+                async with Bot(token=channel_bot.bot_token) as bot:
+                    if await cover_if_due(session, bot, detection_id):
+                        covering_publication_id = detection.covering_publication_id
+                        # Перекрытие уже отправлено в Telegram — фиксируем сразу,
+                        # по той же причине, что в publish_pool_job.
+                        await session.commit()
+                        covered += 1
+                        preview_text = ""
+                        if covering_publication_id is not None:
+                            publication = await session.get(Publication, covering_publication_id)
+                            if publication is not None and publication.pool_post_id is not None:
+                                pool_post = await session.get(PoolPost, publication.pool_post_id)
+                                preview_text = pool_post.text if pool_post else ""
+                        theme = await session.get(Theme, theme_id)
+                        await _notify_admin(
+                            session,
+                            format_ad_covered(
+                                AdCoveredNotification(
+                                    theme_name=theme.name if theme else "",
+                                    target_channel_title=target_title,
+                                    covering_preview_text=preview_text,
+                                )
+                            ),
+                        )
+                    else:
+                        # cover_if_due мог пометить детект IGNORED (например,
+                        # разрешив гонку с собственной публикацией) — фиксируем.
+                        await session.commit()
+            except Exception:
+                await session.rollback()
+                logger.exception(
+                    "scheduler.ad_watchdog_detection_failed", detection_id=str(detection_id)
+                )
 
     if covered:
         logger.info("scheduler.ad_watchdog_done", covered=covered)

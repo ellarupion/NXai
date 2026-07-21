@@ -12,6 +12,7 @@ ARCHITECTURE.md §7), и один и тот же класс используют
 разрешит chat_id/username в сущность."""
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -35,6 +36,11 @@ class ChannelHistoryMessage:
     grouped_id: int | None
     views: int | None
     forwards: int | None
+    # Дата публикации в самом Telegram (не момент, когда мы пост увидели) —
+    # нужна докачке: у старого поста forwards накоплены за всю его жизнь, и
+    # сравнивать их с "форвардами за первые часы" свежих постов нечестно
+    # (core/services/backfill.py решает по этой дате, скорить ли пост вообще).
+    posted_at: datetime | None
 
 
 class SourceStatsClient:
@@ -80,16 +86,35 @@ class SourceStatsClient:
 
         messages: list[ChannelHistoryMessage] = []
         async for message in self._client.iter_messages(chat_id, min_id=min_id, reverse=True, limit=limit):
-            messages.append(
-                ChannelHistoryMessage(
-                    tg_message_id=message.id,
-                    text=message.raw_text or None,
-                    grouped_id=message.grouped_id,
-                    views=message.views,
-                    forwards=message.forwards,
-                )
-            )
+            messages.append(self._to_history_message(message))
         return messages
+
+    async def get_recent_messages(self, chat_id: int, limit: int = 30) -> list[ChannelHistoryMessage]:
+        """Последние limit сообщений канала (самые свежие). Используется для
+        ПЕРВОГО скана нового source_channel: get_messages_after(min_id=0)
+        отдал бы 30 СТАРЕЙШИХ постов канала — с годами накопленных forwards,
+        которые скоринг принял бы за сверхвиральность (см. аудит, баг К2)."""
+        if self._client is None:
+            raise RuntimeError("SourceStatsClient не подключён — вызовите connect() сначала")
+
+        messages: list[ChannelHistoryMessage] = []
+        async for message in self._client.iter_messages(chat_id, limit=limit):
+            messages.append(self._to_history_message(message))
+        # iter_messages без reverse отдаёт от новых к старым — разворачиваем,
+        # чтобы вызывающая сторона всегда получала хронологический порядок.
+        messages.reverse()
+        return messages
+
+    @staticmethod
+    def _to_history_message(message) -> ChannelHistoryMessage:  # noqa: ANN001 — telethon Message
+        return ChannelHistoryMessage(
+            tg_message_id=message.id,
+            text=message.raw_text or None,
+            grouped_id=message.grouped_id,
+            views=message.views,
+            forwards=message.forwards,
+            posted_at=message.date,
+        )
 
     async def __aenter__(self) -> "SourceStatsClient":
         await self.connect()

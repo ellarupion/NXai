@@ -23,6 +23,30 @@ from core.models.target_channel import TargetChannel
 
 logger = get_logger(__name__)
 
+# Жёсткий лимит Bot API на текстовое сообщение. Промпт рерайта просит держаться
+# заметно короче (core/services/rewrite.py), но LLM это не гарантия — перед
+# отправкой обрезаем защитно, иначе send_message падает и публикация теряется.
+TELEGRAM_MAX_TEXT = 4096
+TRUNCATION_ELLIPSIS = "…"
+
+
+def fit_to_telegram_limit(text: str, signature: str = "") -> str:
+    """Собирает текст с подписью и, если он не влезает в лимит Telegram,
+    обрезает ОСНОВНОЙ текст по границе слова (подпись сохраняется целиком)."""
+    full = f"{text}\n\n{signature}" if signature else text
+    if len(full) <= TELEGRAM_MAX_TEXT:
+        return full
+
+    overhead = (len(signature) + 2 if signature else 0) + len(TRUNCATION_ELLIPSIS)
+    budget = TELEGRAM_MAX_TEXT - overhead
+    cut = text[:budget]
+    last_space = cut.rfind(" ")
+    if last_space > budget // 2:
+        cut = cut[:last_space]
+    truncated = f"{cut}{TRUNCATION_ELLIPSIS}"
+    logger.warning("publisher.text_truncated", original_len=len(text), truncated_len=len(truncated))
+    return f"{truncated}\n\n{signature}" if signature else truncated
+
 
 class NotPublishableError(Exception):
     pass
@@ -46,9 +70,7 @@ class PublisherService:
         post_version = await self.session.get(PostVersion, candidate.selected_post_version_id)
         target_channel = await self._get_target_channel(target_channel_id)
 
-        text = post_version.rewritten_text
-        if target_channel.signature:
-            text = f"{text}\n\n{target_channel.signature}"
+        text = fit_to_telegram_limit(post_version.rewritten_text, target_channel.signature)
 
         message = await bot.send_message(
             target_channel.tg_chat_id, text, link_preview_options=LinkPreviewOptions(is_disabled=True)
@@ -83,9 +105,7 @@ class PublisherService:
 
         target_channel = await self._get_target_channel(target_channel_id)
 
-        text = pool_post.text
-        if target_channel.signature:
-            text = f"{text}\n\n{target_channel.signature}"
+        text = fit_to_telegram_limit(pool_post.text, target_channel.signature)
 
         message = await bot.send_message(
             target_channel.tg_chat_id, text, link_preview_options=LinkPreviewOptions(is_disabled=True)

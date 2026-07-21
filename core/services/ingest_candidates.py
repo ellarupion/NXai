@@ -31,6 +31,12 @@ class IncomingCandidate:
     source_channel_tg_chat_id: int
     tg_message_id: int
     text: str
+    # Дата публикации поста в Telegram. Для live-ingest её можно не передавать
+    # (пост только что вышел, now — честное приближение), но докачка истории
+    # ОБЯЗАНА её передавать: контрольные точки скоринга (+30м/+2ч/+6ч,
+    # core/services/scoring.py) отсчитываются от first_seen_at, и без реальной
+    # даты бэкфильнутый вчерашний пост выглядел бы «только что увиденным».
+    posted_at: datetime | None = None
 
 
 class IngestCandidatesService:
@@ -63,7 +69,7 @@ class IngestCandidatesService:
             source_channel_id=source_channel.id,
             tg_message_id=post.tg_message_id,
             raw_text=post.text,
-            first_seen_at=datetime.now(timezone.utc),
+            first_seen_at=post.posted_at or datetime.now(timezone.utc),
             status=CandidatePostStatus.NEW,
         )
         self.session.add(candidate)

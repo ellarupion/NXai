@@ -131,7 +131,12 @@ class ScoringService:
 
         candidate.status = CandidatePostStatus.REJECTED
         await self.session.flush()
-        await adjust_trust_score(self.session, candidate.source_channel_id, -REJECTED_PENALTY)
+        # Штраф доверия — только если кандидат реально скорился и не добрал
+        # порога. score=None означает «мы его и не оценивали» (старый пост из
+        # докачки, скрытые счётчики канала) — источник в этом не виноват, и
+        # массовый первый backfill не должен обваливать trust_score.
+        if candidate.score is not None:
+            await adjust_trust_score(self.session, candidate.source_channel_id, -REJECTED_PENALTY)
         logger.info("scoring.rejected_matured", candidate_id=str(candidate.id), score=candidate.score)
         return True
 

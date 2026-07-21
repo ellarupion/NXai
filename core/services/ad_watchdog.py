@@ -85,6 +85,23 @@ async def cover_if_due(
         await session.flush()
         return False
 
+    # Защита от самоперекрытия: в момент детекта Publication нашей публикации
+    # могла быть ещё не закоммичена (channel_post-апдейт прилетает в процесс
+    # ботов за миллисекунды, а publish-джоб коммитит чуть позже) — поэтому
+    # прямо перед перекрытием перепроверяем, не наш ли это пост. Спустя
+    # COVER_DELAY (час) настоящая публикация гарантированно уже в БД.
+    own_publication = await session.scalar(
+        select(Publication.id).where(
+            Publication.target_channel_id == target_channel.id,
+            Publication.tg_message_id == detection.tg_message_id,
+        )
+    )
+    if own_publication is not None:
+        detection.action = AdDetectionAction.IGNORED
+        await session.flush()
+        logger.info("ad_watchdog.own_publication_race_resolved", ad_detection_id=str(detection.id))
+        return False
+
     next_post = await SchedulerPoolService(session).pick_pool_post(target_channel.theme_id)
     if next_post is None:
         logger.warning("ad_watchdog.no_pool_post_available", target_channel_id=str(target_channel.id))
