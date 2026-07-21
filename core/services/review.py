@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
+from core.services.trust_score import REJECTED_PENALTY, adjust_trust_score
 
 
 class ReviewError(Exception):
@@ -30,6 +31,9 @@ async def _get_pending_candidate(session: AsyncSession, candidate_id: UUID) -> C
 
 
 async def approve_candidate(session: AsyncSession, candidate_id: UUID) -> CandidatePost:
+    """trust_score уже получил бонус за успешный рерайт в
+    core/services/rewrite.py:generate — здесь его не дублируем, approve
+    просто снимает статус ожидания ручной проверки."""
     candidate = await _get_pending_candidate(session, candidate_id)
     candidate.status = CandidatePostStatus.REWRITTEN
     await session.flush()
@@ -40,4 +44,5 @@ async def reject_candidate(session: AsyncSession, candidate_id: UUID) -> Candida
     candidate = await _get_pending_candidate(session, candidate_id)
     candidate.status = CandidatePostStatus.REJECTED
     await session.flush()
+    await adjust_trust_score(session, candidate.source_channel_id, -REJECTED_PENALTY)
     return candidate

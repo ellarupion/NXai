@@ -16,6 +16,7 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.post_version import PostVersion
+from core.services.trust_score import SUCCESS_BONUS, adjust_trust_score
 
 logger = get_logger(__name__)
 
@@ -70,6 +71,11 @@ class RewriteService:
         candidate.selected_post_version_id = version.id
         candidate.status = CandidatePostStatus.REWRITTEN
         await self.session.flush()
+        # Источник исправно поставляет рерайтабельный контент — единственное
+        # место бонуса за успех (core/services/force_generate.py тоже проходит
+        # через этот метод, а затем сам переводит статус в PENDING_REVIEW —
+        # дублировать бонус в core/services/review.py:approve_candidate не нужно).
+        await adjust_trust_score(self.session, candidate.source_channel_id, SUCCESS_BONUS)
 
         logger.info(
             "rewrite.generated",

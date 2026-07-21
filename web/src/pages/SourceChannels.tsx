@@ -5,6 +5,19 @@ import { sourceChannelsQuery, telethonSessionsQuery, themesQuery } from "../api/
 import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select } from "../components/ui";
 import type { SourceChannel } from "../types";
 
+function TrustScoreBadge({ value }: { value: number }) {
+  const styles =
+    value >= 1.0 ? "bg-good-soft text-good" : value >= 0.5 ? "bg-surface-2 text-ink-muted" : "bg-bad-soft text-bad";
+  return (
+    <span
+      title="Доверие к источнику — автоматически растёт на успешных рерайтах, падает на дублях/reject (core/services/trust_score.py)"
+      className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${styles}`}
+    >
+      trust {value.toFixed(2)}
+    </span>
+  );
+}
+
 function AssignThemeCell({ channel }: { channel: SourceChannel }) {
   const queryClient = useQueryClient();
   const themes = useQuery(themesQuery());
@@ -196,7 +209,10 @@ export function SourceChannels() {
             {data.map((channel) => (
               <li key={channel.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-ink">{channel.title}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate font-medium text-ink">{channel.title}</p>
+                    <TrustScoreBadge value={channel.trust_score} />
+                  </div>
                   <p className="truncate text-xs text-ink-muted">
                     {channel.tg_username ? `@${channel.tg_username}` : channel.tg_chat_id ?? "—"}
                   </p>

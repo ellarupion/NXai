@@ -18,6 +18,7 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.source_channel import SourceChannel
+from core.services.trust_score import DUPLICATE_PENALTY, adjust_trust_score
 
 logger = get_logger(__name__)
 
@@ -114,6 +115,7 @@ class DedupService:
             other.status = CandidatePostStatus.DUPLICATE
             other.duplicate_of_id = candidate.id
             await self.session.flush()
+            await adjust_trust_score(self.session, other.source_channel_id, -DUPLICATE_PENALTY)
             logger.info(
                 "dedup.merged_other_into_current",
                 candidate_id=str(candidate_id),
@@ -124,6 +126,7 @@ class DedupService:
         candidate.status = CandidatePostStatus.DUPLICATE
         candidate.duplicate_of_id = best_duplicate.candidate_id
         await self.session.flush()
+        await adjust_trust_score(self.session, candidate.source_channel_id, -DUPLICATE_PENALTY)
         logger.info(
             "dedup.current_merged_into_other",
             candidate_id=str(candidate_id),

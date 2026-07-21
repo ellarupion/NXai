@@ -23,11 +23,14 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.metrics_snapshot import CandidateMetricsSnapshot
+from core.models.source_channel import SourceChannel
+from core.services.trust_score import REJECTED_PENALTY, adjust_trust_score
 from core.statistics.client import PostStats
 
 logger = get_logger(__name__)
 
 CHECKPOINT_OFFSETS = (timedelta(minutes=30), timedelta(hours=2), timedelta(hours=6))
+MAX_CHECKPOINT_OFFSET = max(CHECKPOINT_OFFSETS)
 MIN_SAMPLES_FOR_MEDIAN = 5
 # Порог отбора эвристический (см. ARCHITECTURE.md §5 — калибровка на реальных
 # данных темы откладывается до Phase 1/2, как и HIGH_SIMILARITY_THRESHOLD в NX).
@@ -68,6 +71,15 @@ class ScoringService:
         median = await self._channel_median_forwards(candidate.source_channel_id, since_days=7)
         score = stats.forwards / median if median and median > 0 else float(stats.forwards)
 
+        # trust_score — множитель (core/services/trust_score.py): источник,
+        # систематически дающий дубли/отклонённые посты, должен показать
+        # пропорционально более высокий сырой score, чтобы всё равно пройти
+        # порог отбора — без этого trust_score был бы просто цифрой в API,
+        # ни на что не влияющей.
+        source_channel = await self.session.get(SourceChannel, candidate.source_channel_id)
+        if source_channel is not None:
+            score *= source_channel.trust_score
+
         candidate.score = score
         if candidate.status is CandidatePostStatus.NEW:
             candidate.status = CandidatePostStatus.SCORING
@@ -103,6 +115,24 @@ class ScoringService:
         candidate.status = CandidatePostStatus.SELECTED
         await self.session.flush()
         logger.info("scoring.selected", candidate_id=str(candidate_id), score=candidate.score)
+        return True
+
+    async def reject_if_matured(self, candidate: CandidatePost, now: datetime | None = None) -> bool:
+        """Кандидат, доживший до последней контрольной точки (+6ч) и так и не
+        прошедший promote_if_selected — is_checkpoint_due() больше никогда не
+        подхватит его повторно (статус остался NEW/SCORING, но все офсеты уже
+        пройдены), поэтому без этого он завис бы в SCORING навсегда. Закрываем
+        явно как REJECTED и слегка снижаем доверие к источнику."""
+        now = now or datetime.now(timezone.utc)
+        if candidate.status not in (CandidatePostStatus.NEW, CandidatePostStatus.SCORING):
+            return False
+        if now - candidate.first_seen_at < MAX_CHECKPOINT_OFFSET:
+            return False
+
+        candidate.status = CandidatePostStatus.REJECTED
+        await self.session.flush()
+        await adjust_trust_score(self.session, candidate.source_channel_id, -REJECTED_PENALTY)
+        logger.info("scoring.rejected_matured", candidate_id=str(candidate.id), score=candidate.score)
         return True
 
     async def _channel_median_forwards(self, source_channel_id: UUID, since_days: int) -> float | None:

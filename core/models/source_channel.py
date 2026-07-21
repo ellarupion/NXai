@@ -41,9 +41,11 @@ class SourceChannel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     last_scanned_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Множитель доверия к каналу при скоринге (core/services/scoring.py) — снижается
-    # у источников, чьи кандидаты систематически проигрывают дедуп/помечаются низким
-    # качеством в панели; см. ROADMAP.md Phase 5 ("вывод неэффективных source_channels").
+    # Множитель доверия к каналу при скоринге (core/services/scoring.py:record_snapshot
+    # умножает raw score на это значение) — корректируется автоматически по исходам
+    # кандидатов (core/services/trust_score.py): падает на дублях/reject, растёт на
+    # успешных рерайтах. Панель только показывает текущее значение, не выставляет его
+    # вручную — см. ROADMAP.md Phase 5 про возможный ручной вывод источника из ротации.
     trust_score: Mapped[float] = mapped_column(Float, default=1.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 

@@ -100,7 +100,8 @@ async def score_refresh_job() -> None:
                 if stats is None:
                     continue
                 await scoring.record_snapshot(candidate.id, stats, datetime.now(timezone.utc))
-                await scoring.promote_if_selected(candidate.id)
+                if not await scoring.promote_if_selected(candidate.id):
+                    await scoring.reject_if_matured(candidate)
                 scored += 1
         finally:
             for client in stats_clients.values():
