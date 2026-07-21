@@ -1,11 +1,13 @@
 import asyncio
 from logging.config import fileConfig
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from alembic.autogenerate.api import AutogenContext
 
 from core.config import get_settings
 from core.models import Base
@@ -23,6 +25,19 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def render_item(type_: str, obj: object, autogen_context: AutogenContext) -> str | bool:
+    """Известный баг связки Alembic+pgvector: autogenerate рендерит колонку как
+    `pgvector.sqlalchemy.vector.VECTOR(...)`, но не добавляет для неё import —
+    сгенерированная миграция падает `NameError: name 'pgvector' is not defined`
+    при первом же upgrade. Явно рендерим Vector(...) и просим добавить нужный
+    import в шапку файла (autogen_context.imports — множество строк, которые
+    alembic вставляет в ${imports} шаблона migrations/script.py.mako)."""
+    if type_ == "type" and isinstance(obj, Vector):
+        autogen_context.imports.add("from pgvector.sqlalchemy import Vector")
+        return f"Vector({obj.dim})"
+    return False
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -30,13 +45,14 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(connection=connection, target_metadata=target_metadata, render_item=render_item)
     with context.begin_transaction():
         context.run_migrations()
 
