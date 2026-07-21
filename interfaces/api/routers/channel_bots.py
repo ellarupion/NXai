@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
@@ -15,6 +16,21 @@ from interfaces.api.auth import require_superadmin
 from interfaces.api.deps import get_db
 
 router = APIRouter(prefix="/channel-bots", tags=["channel-bots"], dependencies=[Depends(require_superadmin)])
+
+# Имена партиал-уникальных индексов из core/models/channel_bot.py — по ним
+# отличаем «уже есть активный бот на эту тему» от «уже есть admin-бот», чтобы
+# показать оператору осмысленный текст, а не сырой psql-констрейнт.
+_ACTIVE_THEME_INDEX = "uq_channel_bots_active_theme"
+_ACTIVE_ADMIN_INDEX = "uq_channel_bots_active_admin"
+
+
+def _uniqueness_message(exc: IntegrityError) -> str:
+    detail = str(getattr(exc, "orig", exc))
+    if _ACTIVE_THEME_INDEX in detail:
+        return "У этой темы уже есть активный бот — отключите старый прежде чем заводить нового"
+    if _ACTIVE_ADMIN_INDEX in detail:
+        return "Admin-бот уже создан — отредактируйте существующую запись или отключите её"
+    return "Нарушено ограничение уникальности бота"
 
 
 class ChannelBotOut(BaseModel):
@@ -85,13 +101,6 @@ async def list_channel_bots(session: AsyncSession = Depends(get_db)) -> list[Cha
 async def create_channel_bot(
     payload: ChannelBotCreate, session: AsyncSession = Depends(get_db)
 ) -> ChannelBotOut:
-    if payload.role == BotRole.ADMIN:
-        existing = await session.execute(select(ChannelBot).where(ChannelBot.role == BotRole.ADMIN))
-        if existing.scalar_one_or_none() is not None:
-            raise HTTPException(
-                status_code=400, detail="Admin-бот уже создан — отредактируйте существующую запись"
-            )
-
     bot = ChannelBot(
         theme_id=payload.theme_id,
         role=payload.role,
@@ -100,8 +109,15 @@ async def create_channel_bot(
         cadence=payload.cadence,
     )
     session.add(bot)
-    await session.flush()
-    await session.commit()
+    # Единственность (активный THEME на тему / активный ADMIN) держит партиал-
+    # индекс в БД — ловим гонку и повтор на уровне констрейнта, а не проверкой
+    # select-ом заранее (та не атомарна).
+    try:
+        await session.flush()
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)
 
 
@@ -128,6 +144,12 @@ async def update_channel_bot(
             raise HTTPException(status_code=400, detail="theme_id обязателен для role=theme")
         bot.theme_id = payload.theme_id
 
-    await session.flush()
-    await session.commit()
+    # Реактивация (is_active=True) или смена темы могут столкнуться с уже
+    # активным ботом — тот же партиал-индекс ловит это здесь.
+    try:
+        await session.flush()
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)

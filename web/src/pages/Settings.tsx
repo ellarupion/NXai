@@ -1,9 +1,66 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { settingsQuery } from "../api/queries";
+import { generalSettingsQuery, settingsQuery } from "../api/queries";
 import { Button, Card, ErrorState, Input, LoadingState } from "../components/ui";
-import type { SecretSource, SettingsStatus } from "../types";
+import type { GeneralSettings, SecretSource, SettingsStatus } from "../types";
+
+function TimezoneCard() {
+  const queryClient = useQueryClient();
+  const { data, isLoading, error } = useQuery(generalSettingsQuery());
+  const [value, setValue] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (data) setValue(data.timezone);
+  }, [data]);
+
+  const update = useMutation({
+    mutationFn: (timezone: string) => api.put<GeneralSettings>("/settings/general", { timezone }),
+    onSuccess: () => {
+      setSaveError(null);
+      queryClient.invalidateQueries({ queryKey: ["settings-general"] });
+    },
+    onError: (err) => setSaveError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
+  });
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <h2 className="text-sm font-semibold text-ink">Часовой пояс</h2>
+      <p className="-mt-2 text-xs text-ink-muted">
+        В этом поясе считаются «тихие часы» публикации у ботов. IANA-имя, например
+        Europe/Moscow, Europe/Kyiv, Asia/Almaty. Меняется на лету — вступает в силу со
+        следующего тика планировщика.
+      </p>
+      {isLoading && <LoadingState />}
+      {error && <ErrorState message={error.message} />}
+      {data && (
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!value) return;
+            setSaveError(null);
+            update.mutate(value);
+          }}
+        >
+          <Input
+            type="text"
+            autoComplete="off"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="Europe/Moscow"
+            className="flex-1"
+          />
+          <Button type="submit" disabled={update.isPending || !value || value === data.timezone}>
+            Сохранить
+          </Button>
+        </form>
+      )}
+      {saveError && <p className="text-sm text-bad">{saveError}</p>}
+    </Card>
+  );
+}
 
 const SOURCE_LABEL: Record<SecretSource, string> = {
   panel: "Задан из панели",
@@ -115,6 +172,8 @@ export function Settings() {
         только при рестарте). Сохранённое значение не показывается повторно — только
         источник.
       </p>
+
+      <TimezoneCard />
 
       <Card className="flex flex-col gap-6">
         <h2 className="text-sm font-semibold text-ink">LLM-ключи</h2>

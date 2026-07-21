@@ -4,16 +4,56 @@ core/services/effective_settings.py). Раздел gated require_superadmin це
 даже статус ("задан"/"не задан") — это операционная деталь, не нужная
 обычному оператору темы."""
 
-from fastapi import APIRouter, Depends
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.services.panel_settings import get_or_create_panel_settings, update_secret_overrides
-from interfaces.api.auth import require_superadmin
+from interfaces.api.auth import get_current_admin, require_superadmin
 from interfaces.api.deps import get_db
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(require_superadmin)])
+
+# Таймзона — операционная настройка (влияет на тихие часы публикации), не
+# секрет, поэтому её GET/PUT доступны любому админу, а не только суперадмину;
+# отдельный роутер с более мягкой зависимостью.
+general_router = APIRouter(
+    prefix="/settings/general", tags=["settings"], dependencies=[Depends(get_current_admin)]
+)
+
+
+class GeneralSettingsOut(BaseModel):
+    timezone: str
+
+
+class GeneralSettingsUpdate(BaseModel):
+    timezone: str
+
+
+@general_router.get("", response_model=GeneralSettingsOut)
+async def get_general_settings(session: AsyncSession = Depends(get_db)) -> GeneralSettingsOut:
+    panel_settings = await get_or_create_panel_settings(session)
+    return GeneralSettingsOut(timezone=panel_settings.timezone)
+
+
+@general_router.put("", response_model=GeneralSettingsOut)
+async def update_general_settings(
+    payload: GeneralSettingsUpdate, session: AsyncSession = Depends(get_db)
+) -> GeneralSettingsOut:
+    try:
+        ZoneInfo(payload.timezone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Неизвестная таймзона «{payload.timezone}» — используйте IANA-имя, например Europe/Moscow",
+        ) from exc
+    panel_settings = await get_or_create_panel_settings(session)
+    panel_settings.timezone = payload.timezone
+    await session.commit()
+    return GeneralSettingsOut(timezone=panel_settings.timezone)
 
 
 class SecretStatus(BaseModel):

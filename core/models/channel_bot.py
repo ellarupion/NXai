@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +41,28 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     просто некуда слать."""
 
     __tablename__ = "channel_bots"
+    __table_args__ = (
+        # Один активный публикующий бот на тему и ровно один активный
+        # admin-бот на весь проект. Партиал-индексы (WHERE is_active) — чтобы
+        # деактивированный старый бот не мешал завести новый; scalar_one_or_none
+        # в scheduler.py/ad_watchdog полагается на эту единственность (иначе
+        # MultipleResultsFound роняет джобы — аудит, баг №8).
+        # role хранится как метка нативного enum'а botrole в ВЕРХНЕМ регистре
+        # (THEME/ADMIN — имена членов enum, а не их .value), поэтому в условии
+        # именно 'THEME'/'ADMIN'.
+        Index(
+            "uq_channel_bots_active_theme",
+            "theme_id",
+            unique=True,
+            postgresql_where=text("role = 'THEME' AND is_active"),
+        ),
+        Index(
+            "uq_channel_bots_active_admin",
+            "role",
+            unique=True,
+            postgresql_where=text("role = 'ADMIN' AND is_active"),
+        ),
+    )
 
     theme_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("themes.id", ondelete="CASCADE"), nullable=True

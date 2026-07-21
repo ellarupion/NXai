@@ -3,6 +3,7 @@ import type {
   Alert,
   ChannelBot,
   DashboardStats,
+  GeneralSettings,
   Me,
   PendingReviewPost,
   PoolPost,
@@ -37,6 +38,11 @@ export const channelBotsQuery = () => ({
 export const settingsQuery = () => ({
   queryKey: ["settings"],
   queryFn: () => api.get<SettingsStatus>("/settings"),
+});
+
+export const generalSettingsQuery = () => ({
+  queryKey: ["settings-general"],
+  queryFn: () => api.get<GeneralSettings>("/settings/general"),
 });
 
 export const telethonSessionsQuery = () => ({

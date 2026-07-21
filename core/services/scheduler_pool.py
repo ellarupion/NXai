@@ -9,6 +9,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,10 +22,28 @@ from core.models.source_channel import SourceChannel
 
 logger = get_logger(__name__)
 
+DEFAULT_TIMEZONE = "Europe/Moscow"
 
-def is_quiet_hour(cadence: dict, at: datetime) -> bool:
+
+def resolve_zoneinfo(tz_name: str | None) -> ZoneInfo:
+    """Безопасно превращает строку-таймзону из панели в ZoneInfo; при опечатке/
+    отсутствии базы tzdata откатывается на дефолт, а не роняет весь тик
+    публикации из-за одной неверной настройки."""
+    try:
+        return ZoneInfo(tz_name or DEFAULT_TIMEZONE)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("scheduler_pool.bad_timezone", tz_name=tz_name)
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def is_quiet_hour(cadence: dict, at: datetime, tz: ZoneInfo | None = None) -> bool:
+    """`at` приводится к таймзоне проекта перед сравнением часа: quiet_hours
+    задаются настенными часами оператора, а `at` приходит в UTC (аудит, К3).
+    tz=None сохраняет старое поведение (сравнение по UTC) для обратной
+    совместимости вызовов без зоны."""
+    local = at.astimezone(tz) if tz is not None else at
     start, end = cadence["quiet_hours_start"], cadence["quiet_hours_end"]
-    hour = at.hour
+    hour = local.hour
     if start == end:
         return False
     if start < end:
@@ -32,14 +51,19 @@ def is_quiet_hour(cadence: dict, at: datetime) -> bool:
     return hour >= start or hour < end
 
 
-def is_due(cadence: dict, last_published_at: datetime | None, now: datetime | None = None) -> bool:
-    """Пора ли публиковать: не в тихие часы, и прошло не меньше
-    min_interval_minutes с последней публикации темы (max_interval_minutes —
+def is_due(
+    cadence: dict,
+    last_published_at: datetime | None,
+    now: datetime | None = None,
+    tz: ZoneInfo | None = None,
+) -> bool:
+    """Пора ли публиковать: не в тихие часы (в таймзоне проекта), и прошло не
+    меньше min_interval_minutes с последней публикации темы (max_interval_minutes —
     ориентир для планирования джиттера в next_allowed_delay, здесь не проверяется
     напрямую — если тик планировщика реже max_interval, важнее не публиковать
     слишком часто, чем строго уложиться в максимум)."""
     now = now or datetime.now(timezone.utc)
-    if is_quiet_hour(cadence, now):
+    if is_quiet_hour(cadence, now, tz):
         return False
     if last_published_at is None:
         return True

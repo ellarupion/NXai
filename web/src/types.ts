@@ -70,6 +70,10 @@ export interface SettingsStatus {
   telegram_api_hash: SecretStatus;
 }
 
+export interface GeneralSettings {
+  timezone: string;
+}
+
 export interface TelethonSession {
   id: string;
   label: string;

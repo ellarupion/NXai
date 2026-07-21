@@ -29,8 +29,8 @@ const CADENCE_FIELDS: Array<{ key: keyof Cadence; label: string }> = [
   { key: "min_interval_minutes", label: "Мин. интервал, мин" },
   { key: "max_interval_minutes", label: "Макс. интервал, мин" },
   { key: "jitter_minutes", label: "Джиттер, мин" },
-  { key: "quiet_hours_start", label: "Тихие часы с" },
-  { key: "quiet_hours_end", label: "Тихие часы до" },
+  { key: "quiet_hours_start", label: "Тихие часы с (по таймзоне проекта)" },
+  { key: "quiet_hours_end", label: "Тихие часы до (по таймзоне проекта)" },
 ];
 
 function CreateBotForm() {

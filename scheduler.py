@@ -40,9 +40,10 @@ from core.services.admin_notify import (
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.effective_settings import get_effective_settings
+from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
 from core.services.rewrite import RewriteService
-from core.services.scheduler_pool import SchedulerPoolService, is_due
+from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
 from core.statistics.client import SourceStatsClient
 
@@ -250,6 +251,11 @@ async def publish_pool_job() -> None:
     session_factory = get_session_factory()
     published = 0
     async with session_factory() as session:
+        # Таймзона проекта — для расчёта тихих часов (аудит, К3). Читаем раз на
+        # тик; смена в панели подхватывается со следующего тика без рестарта.
+        panel_settings = await get_or_create_panel_settings(session)
+        tz = resolve_zoneinfo(panel_settings.timezone)
+
         result = await session.execute(
             select(ChannelBot.id).where(
                 ChannelBot.role == BotRole.THEME, ChannelBot.is_active.is_(True)
@@ -276,8 +282,10 @@ async def publish_pool_job() -> None:
             if not target_channels:
                 continue
 
-            last_publication = await _last_publication_at(session, [tc.id for tc in target_channels])
-            if not is_due(cadence, last_publication):
+            target_channel_ids = [tc.id for tc in target_channels]
+            target_titles = ", ".join(tc.title for tc in target_channels)
+            last_publication = await _last_publication_at(session, target_channel_ids)
+            if not is_due(cadence, last_publication, tz=tz):
                 continue
 
             next_post = await SchedulerPoolService(session).pick_next(theme_id)
@@ -286,16 +294,20 @@ async def publish_pool_job() -> None:
 
             async with Bot(token=bot_token) as bot:
                 publisher = PublisherService(session)
-                target_channel = target_channels[0]
                 theme = await session.get(Theme, theme_id)
                 theme_name = theme.name if theme else ""
-                target_title = target_channel.title
                 try:
                     preview_text = await _preview_text_for(session, next_post)
+                    # Публикуем во ВСЕ активные целевые каналы темы, а не только
+                    # в первый (аудит, баг №5).
                     if next_post.kind == "candidate":
-                        await publisher.publish_candidate(bot, next_post.id, target_channel.id)
+                        await publisher.publish_candidate_to_channels(
+                            bot, next_post.id, target_channel_ids
+                        )
                     else:
-                        await publisher.publish_pool_post(bot, next_post.id, target_channel.id)
+                        await publisher.publish_pool_post_to_channels(
+                            bot, next_post.id, target_channel_ids
+                        )
                     # Коммит СРАЗУ после успешной отправки, до уведомлений: пост
                     # уже в Telegram, и незакоммиченная Publication — это (а) дубль
                     # при рестарте процесса и (б) окно гонки, в котором ad watchdog
@@ -307,7 +319,7 @@ async def publish_pool_job() -> None:
                         format_published(
                             PublishedNotification(
                                 theme_name=theme_name,
-                                target_channel_title=target_title,
+                                target_channel_title=target_titles,
                                 preview_text=preview_text,
                             )
                         ),

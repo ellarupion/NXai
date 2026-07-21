@@ -25,6 +25,13 @@ class PanelSettings(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     logo_image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     logo_content_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # IANA-таймзона всего проекта. Каданс публикации (интервалы) от неё не
+    # зависит — это разница во времени, — но «тихие часы» задаются часами
+    # настенных суток, и без явной зоны 23–8 считались бы по UTC: оператор
+    # вводит по своему часовому поясу, а канал реально молчал бы не тогда
+    # (аудит, баг К3). Default — Москва, самый частый кейс.
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
+
     anthropic_api_key_override: Mapped[str] = mapped_column(Text, default="")
     voyage_api_key_override: Mapped[str] = mapped_column(Text, default="")
     telegram_api_id_override: Mapped[int] = mapped_column(Integer, default=0)

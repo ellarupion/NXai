@@ -1,5 +1,5 @@
 from sqlalchemy import BigInteger, String
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
