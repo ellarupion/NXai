@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from aiogram import Bot
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import LinkPreviewOptions
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +48,25 @@ def fit_to_telegram_limit(text: str, signature: str = "") -> str:
     truncated = f"{cut}{TRUNCATION_ELLIPSIS}"
     logger.warning("publisher.text_truncated", original_len=len(text), truncated_len=len(truncated))
     return f"{truncated}\n\n{signature}" if signature else truncated
+
+
+async def _send_post(bot: Bot, chat_id: int, text: str):
+    """Отправляет пост с Markdown-разметкой (жирный/курсив/ссылки от рерайта,
+    аудит, п.3.5). LLM иногда возвращает Markdown с несбалансированными * или _,
+    на котором Telegram отвечает 400 «can't parse entities» — в этом случае
+    повторяем без parse_mode, чтобы разметка не стоила публикации вообще."""
+    link_preview = LinkPreviewOptions(is_disabled=True)
+    try:
+        return await bot.send_message(
+            chat_id, text, parse_mode=ParseMode.MARKDOWN, link_preview_options=link_preview
+        )
+    except TelegramBadRequest as exc:
+        if "parse" not in str(exc).lower():
+            raise
+        logger.warning("publisher.markdown_parse_failed_fallback_plain", chat_id=chat_id)
+        return await bot.send_message(
+            chat_id, text, parse_mode=None, link_preview_options=link_preview
+        )
 
 
 class NotPublishableError(Exception):
@@ -88,9 +109,7 @@ class PublisherService:
         for target_channel_id in target_channel_ids:
             target_channel = await self._get_target_channel(target_channel_id)
             text = fit_to_telegram_limit(post_version.rewritten_text, target_channel.signature)
-            message = await bot.send_message(
-                target_channel.tg_chat_id, text, link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
+            message = await _send_post(bot, target_channel.tg_chat_id, text)
             publication = Publication(
                 target_channel_id=target_channel.id,
                 source=PublicationSource.CANDIDATE,
@@ -137,9 +156,7 @@ class PublisherService:
         for target_channel_id in target_channel_ids:
             target_channel = await self._get_target_channel(target_channel_id)
             text = fit_to_telegram_limit(pool_post.text, target_channel.signature)
-            message = await bot.send_message(
-                target_channel.tg_chat_id, text, link_preview_options=LinkPreviewOptions(is_disabled=True)
-            )
+            message = await _send_post(bot, target_channel.tg_chat_id, text)
             publication = Publication(
                 target_channel_id=target_channel.id,
                 source=PublicationSource.POOL,

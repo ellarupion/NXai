@@ -40,6 +40,7 @@ from core.services.admin_notify import (
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.effective_settings import get_effective_settings
+from core.services.heartbeat import WORKER_SCHEDULER, record_heartbeat
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
 from core.services.rewrite import RewriteService
@@ -54,6 +55,16 @@ SCORE_REFRESH_INTERVAL_MINUTES = 10
 DEDUP_REWRITE_INTERVAL_MINUTES = 5
 PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
+HEARTBEAT_INTERVAL_SECONDS = 60
+
+
+async def heartbeat_job() -> None:
+    """Отметка живости процесса scheduler (аудит, п.3.1) — панель по ней
+    отличает «пайплайн работает» от «процесс упал/завис»."""
+    try:
+        await record_heartbeat(WORKER_SCHEDULER)
+    except Exception:
+        logger.exception("scheduler.heartbeat_failed")
 
 
 async def backfill_job() -> None:
@@ -255,6 +266,7 @@ async def publish_pool_job() -> None:
         # тик; смена в панели подхватывается со следующего тика без рестарта.
         panel_settings = await get_or_create_panel_settings(session)
         tz = resolve_zoneinfo(panel_settings.timezone)
+        pool_cooldown_days = panel_settings.pool_cooldown_days
 
         result = await session.execute(
             select(ChannelBot.id).where(
@@ -288,7 +300,9 @@ async def publish_pool_job() -> None:
             if not is_due(cadence, last_publication, tz=tz):
                 continue
 
-            next_post = await SchedulerPoolService(session).pick_next(theme_id)
+            next_post = await SchedulerPoolService(session).pick_next(
+                theme_id, pool_cooldown_days=pool_cooldown_days
+            )
             if next_post is None:
                 continue
 
@@ -446,6 +460,10 @@ async def _last_publication_at(session, target_channel_ids: list) -> datetime | 
 def build_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
 
+    scheduler.add_job(
+        heartbeat_job, "interval", seconds=HEARTBEAT_INTERVAL_SECONDS,
+        id="heartbeat", max_instances=1,
+    )
     scheduler.add_job(
         backfill_job, "interval", minutes=BACKFILL_INTERVAL_MINUTES,
         id="backfill", max_instances=1,

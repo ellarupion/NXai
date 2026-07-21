@@ -5,18 +5,23 @@ import { generalSettingsQuery, settingsQuery } from "../api/queries";
 import { Button, Card, ErrorState, Input, LoadingState } from "../components/ui";
 import type { GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
-function TimezoneCard() {
+function GeneralSettingsCard() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useQuery(generalSettingsQuery());
-  const [value, setValue] = useState("");
+  const [tz, setTz] = useState("");
+  const [cooldown, setCooldown] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (data) setValue(data.timezone);
+    if (data) {
+      setTz(data.timezone);
+      setCooldown(String(data.pool_cooldown_days));
+    }
   }, [data]);
 
   const update = useMutation({
-    mutationFn: (timezone: string) => api.put<GeneralSettings>("/settings/general", { timezone }),
+    mutationFn: (payload: Partial<GeneralSettings>) =>
+      api.put<GeneralSettings>("/settings/general", payload),
     onSuccess: () => {
       setSaveError(null);
       queryClient.invalidateQueries({ queryKey: ["settings-general"] });
@@ -24,35 +29,52 @@ function TimezoneCard() {
     onError: (err) => setSaveError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
   });
 
+  const dirty = data && (tz !== data.timezone || cooldown !== String(data.pool_cooldown_days));
+
   return (
     <Card className="flex flex-col gap-4">
-      <h2 className="text-sm font-semibold text-ink">Часовой пояс</h2>
-      <p className="-mt-2 text-xs text-ink-muted">
-        В этом поясе считаются «тихие часы» публикации у ботов. IANA-имя, например
-        Europe/Moscow, Europe/Kyiv, Asia/Almaty. Меняется на лету — вступает в силу со
-        следующего тика планировщика.
-      </p>
+      <h2 className="text-sm font-semibold text-ink">Общие настройки</h2>
       {isLoading && <LoadingState />}
       {error && <ErrorState message={error.message} />}
       {data && (
         <form
-          className="flex gap-2"
+          className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!value) return;
+            if (!tz) return;
             setSaveError(null);
-            update.mutate(value);
+            update.mutate({ timezone: tz, pool_cooldown_days: Number(cooldown) });
           }}
         >
-          <Input
-            type="text"
-            autoComplete="off"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder="Europe/Moscow"
-            className="flex-1"
-          />
-          <Button type="submit" disabled={update.isPending || !value || value === data.timezone}>
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-ink">Часовой пояс</span>
+            <p className="text-xs text-ink-muted">
+              В этом поясе считаются «тихие часы» публикации. IANA-имя: Europe/Moscow,
+              Europe/Kyiv, Asia/Almaty. Меняется на лету.
+            </p>
+            <Input
+              type="text"
+              autoComplete="off"
+              value={tz}
+              onChange={(e) => setTz(e.target.value)}
+              placeholder="Europe/Moscow"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-ink">Кулдаун пула, дней</span>
+            <p className="text-xs text-ink-muted">
+              Не публиковать один и тот же пост из пула повторно чаще, чем раз в столько
+              дней. 0 — отключить.
+            </p>
+            <Input
+              type="number"
+              min={0}
+              value={cooldown}
+              onChange={(e) => setCooldown(e.target.value)}
+              placeholder="7"
+            />
+          </div>
+          <Button type="submit" disabled={update.isPending || !tz || !dirty} className="self-start">
             Сохранить
           </Button>
         </form>
@@ -173,7 +195,7 @@ export function Settings() {
         источник.
       </p>
 
-      <TimezoneCard />
+      <GeneralSettingsCard />
 
       <Card className="flex flex-col gap-6">
         <h2 className="text-sm font-semibold text-ink">LLM-ключи</h2>

@@ -2,7 +2,29 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { alertsQuery, dashboardStatsQuery } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
-import type { Alert } from "../types";
+import type { Alert, WorkerStatus } from "../types";
+
+function WorkersCard({ workers }: { workers: WorkerStatus[] }) {
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Фоновые процессы</h2>
+      <ul className="flex flex-col divide-y divide-border">
+        {workers.map((w) => (
+          <li key={w.worker_name} className="flex items-center justify-between py-2">
+            <span className="text-sm text-ink">{w.label}</span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+                w.is_alive ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+              }`}
+            >
+              {w.is_alive ? "работает" : w.last_beat_at ? "не отвечает" : "не запущен"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новые",
@@ -145,6 +167,8 @@ export function Dashboard() {
           </ul>
         )}
       </Card>
+
+      <WorkersCard workers={data.workers} />
     </div>
   );
 }

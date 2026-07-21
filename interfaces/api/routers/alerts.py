@@ -20,6 +20,7 @@ from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.theme import Theme
+from core.services.heartbeat import list_worker_status
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
@@ -28,6 +29,12 @@ router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(get_
 THEME_INACTIVITY_DAYS = 3
 STALE_SOURCE_DAYS = 3
 PENDING_REVIEW_STALE_HOURS = 24
+
+_WORKER_LABELS = {
+    "scheduler": "Планировщик (публикация, скоринг, дедуп)",
+    "ingest": "Читалка чужих каналов (Telethon)",
+    "bots": "Боты (публикация, ad watchdog)",
+}
 
 
 class Alert(BaseModel):
@@ -173,5 +180,18 @@ async def list_alerts(session: AsyncSession = Depends(get_db)) -> list[Alert]:
                 theme_id=theme_id,
             )
         )
+
+    # Живость фоновых процессов (аудит, п.3.1): остальные алерты видят проблемы
+    # в данных/конфигурации, но не заметят, что сам scheduler/ingest/bots упал
+    # или завис — это ловит heartbeat.
+    for status in await list_worker_status(session, now):
+        if status["is_alive"]:
+            continue
+        label = _WORKER_LABELS.get(status["worker_name"], status["worker_name"])
+        if status["last_beat_at"] is None:
+            message = f"Процесс «{label}» ни разу не выходил на связь — он запущен?"
+        else:
+            message = f"Процесс «{label}» не отвечает — последний сигнал был давно, вероятно упал или завис"
+        alerts.append(Alert(severity="warning", category="worker_down", message=message))
 
     return alerts

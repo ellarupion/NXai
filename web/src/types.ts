@@ -72,6 +72,7 @@ export interface SettingsStatus {
 
 export interface GeneralSettings {
   timezone: string;
+  pool_cooldown_days: number;
 }
 
 export interface TelethonSession {
@@ -125,6 +126,14 @@ export interface TopSource {
   candidate_count: number;
 }
 
+export interface WorkerStatus {
+  worker_name: string;
+  label: string;
+  is_alive: boolean;
+  last_beat_at: string | null;
+  detail: string | null;
+}
+
 export interface DashboardStats {
   themes_total: number;
   themes_active: number;
@@ -137,6 +146,7 @@ export interface DashboardStats {
   pool_posts_total: number;
   pool_posts_ready: number;
   top_sources: TopSource[];
+  workers: WorkerStatus[];
 }
 
 export type AlertSeverity = "warning" | "info";

@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { channelBotsQuery, themesQuery } from "../api/queries";
 import {
   Button,
+  Callout,
   Card,
   EmptyState,
   ErrorState,
@@ -214,6 +215,10 @@ export function Bots() {
         создания нужно один раз написать /start в личку в Telegram — иначе Bot API
         не даст боту написать первым, и уведомления будет некуда слать.
       </p>
+      <Callout>
+        Новый или изменённый бот подхватывается процессом ботов только после его
+        перезапуска на сервере — до этого он не публикует и не отвечает.
+      </Callout>
 
       <CreateBotForm />
 

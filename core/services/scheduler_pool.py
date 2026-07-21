@@ -91,15 +91,16 @@ class SchedulerPoolService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def pick_next(self, theme_id: UUID) -> NextPost | None:
+    async def pick_next(self, theme_id: UUID, pool_cooldown_days: int = 0) -> NextPost | None:
         """REWRITTEN-кандидаты темы в приоритете (взвешенно-случайно по score —
         не всегда самый "вирусный", чтобы порядок выхода не был предсказуемым),
-        pool_posts — fallback, когда пул рерайтов пуст (см. ARCHITECTURE.md §5)."""
+        pool_posts — fallback, когда пул рерайтов пуст (см. ARCHITECTURE.md §5).
+        pool_cooldown_days ограничивает переиспользование пула (аудит, п.3.3)."""
         candidate = await self._pick_weighted_candidate(theme_id)
         if candidate is not None:
             return NextPost(kind="candidate", id=candidate.id)
 
-        pool_post = await self.pick_pool_post(theme_id)
+        pool_post = await self.pick_pool_post(theme_id, pool_cooldown_days=pool_cooldown_days)
         if pool_post is not None:
             return NextPost(kind="pool", id=pool_post.id)
 
@@ -121,16 +122,39 @@ class SchedulerPoolService:
         weights = [max(c.score or 0.0, 0.01) for c in candidates]
         return random.choices(candidates, weights=weights, k=1)[0]
 
-    async def pick_pool_post(self, theme_id: UUID) -> PoolPost | None:
-        """Публичный метод — используется и здесь (fallback в pick_next), и
-        напрямую core/services/ad_watchdog.py для перекрытия рекламы тем же
-        источником "запасного" контента."""
-        result = await self.session.execute(
+    async def pick_pool_post(
+        self,
+        theme_id: UUID,
+        pool_cooldown_days: int = 0,
+        allow_repeat_when_all_on_cooldown: bool = True,
+    ) -> PoolPost | None:
+        """Берёт наименее недавно использованный READY-пост темы. При
+        pool_cooldown_days > 0 исключает посты, публиковавшиеся за последние
+        N дней (аудит, п.3.3).
+
+        allow_repeat_when_all_on_cooldown: если все посты на кулдауне —
+        True (по умолчанию, для ad-cover) повторяет наименее недавний, чтобы
+        не оставить рекламу неперекрытой; False (обычное заполнение расписания
+        из pick_next) возвращает None — пусть слот пропустится, чем выйдет
+        повтор раньше срока."""
+        base = (
             select(PoolPost)
             .where(PoolPost.theme_id == theme_id, PoolPost.status == PoolPostStatus.READY)
             .order_by(PoolPost.last_used_at.asc().nulls_first())
-            .limit(1)
         )
+        if pool_cooldown_days > 0:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=pool_cooldown_days)
+            fresh = await self.session.execute(
+                base.where(
+                    (PoolPost.last_used_at.is_(None)) | (PoolPost.last_used_at < cutoff)
+                ).limit(1)
+            )
+            picked = fresh.scalar_one_or_none()
+            if picked is not None:
+                return picked
+            if not allow_repeat_when_all_on_cooldown:
+                return None
+        result = await self.session.execute(base.limit(1))
         return result.scalar_one_or_none()
 
 

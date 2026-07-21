@@ -17,15 +17,30 @@ from core.models.pool_post import PoolPost
 from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.theme import Theme
+from core.services.heartbeat import list_worker_status
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(get_current_admin)])
 
+_WORKER_LABELS = {
+    "scheduler": "Планировщик",
+    "ingest": "Читалка каналов",
+    "bots": "Боты",
+}
+
 
 class TopSourceOut(BaseModel):
     title: str
     candidate_count: int
+
+
+class WorkerStatusOut(BaseModel):
+    worker_name: str
+    label: str
+    is_alive: bool
+    last_beat_at: datetime | None
+    detail: str | None
 
 
 class DashboardStatsOut(BaseModel):
@@ -40,6 +55,7 @@ class DashboardStatsOut(BaseModel):
     pool_posts_total: int
     pool_posts_ready: int
     top_sources: list[TopSourceOut]
+    workers: list[WorkerStatusOut]
 
 
 @router.get("/stats", response_model=DashboardStatsOut)
@@ -87,6 +103,17 @@ async def get_dashboard_stats(session: AsyncSession = Depends(get_db)) -> Dashbo
         TopSourceOut(title=title, candidate_count=count) for title, count in top_sources_result.all()
     ]
 
+    workers = [
+        WorkerStatusOut(
+            worker_name=status["worker_name"],
+            label=_WORKER_LABELS.get(status["worker_name"], status["worker_name"]),
+            is_alive=status["is_alive"],
+            last_beat_at=status["last_beat_at"],
+            detail=status["detail"],
+        )
+        for status in await list_worker_status(session)
+    ]
+
     return DashboardStatsOut(
         themes_total=themes_total,
         themes_active=themes_active,
@@ -99,4 +126,5 @@ async def get_dashboard_stats(session: AsyncSession = Depends(get_db)) -> Dashbo
         pool_posts_total=pool_posts_total,
         pool_posts_ready=pool_posts_ready,
         top_sources=top_sources,
+        workers=workers,
     )

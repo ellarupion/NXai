@@ -27,33 +27,44 @@ general_router = APIRouter(
 
 class GeneralSettingsOut(BaseModel):
     timezone: str
+    pool_cooldown_days: int
 
 
 class GeneralSettingsUpdate(BaseModel):
-    timezone: str
+    timezone: str | None = None
+    pool_cooldown_days: int | None = None
 
 
 @general_router.get("", response_model=GeneralSettingsOut)
 async def get_general_settings(session: AsyncSession = Depends(get_db)) -> GeneralSettingsOut:
     panel_settings = await get_or_create_panel_settings(session)
-    return GeneralSettingsOut(timezone=panel_settings.timezone)
+    return GeneralSettingsOut(
+        timezone=panel_settings.timezone, pool_cooldown_days=panel_settings.pool_cooldown_days
+    )
 
 
 @general_router.put("", response_model=GeneralSettingsOut)
 async def update_general_settings(
     payload: GeneralSettingsUpdate, session: AsyncSession = Depends(get_db)
 ) -> GeneralSettingsOut:
-    try:
-        ZoneInfo(payload.timezone)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Неизвестная таймзона «{payload.timezone}» — используйте IANA-имя, например Europe/Moscow",
-        ) from exc
     panel_settings = await get_or_create_panel_settings(session)
-    panel_settings.timezone = payload.timezone
+    if payload.timezone is not None:
+        try:
+            ZoneInfo(payload.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Неизвестная таймзона «{payload.timezone}» — используйте IANA-имя, например Europe/Moscow",
+            ) from exc
+        panel_settings.timezone = payload.timezone
+    if payload.pool_cooldown_days is not None:
+        if payload.pool_cooldown_days < 0:
+            raise HTTPException(status_code=400, detail="Кулдаун пула не может быть отрицательным")
+        panel_settings.pool_cooldown_days = payload.pool_cooldown_days
     await session.commit()
-    return GeneralSettingsOut(timezone=panel_settings.timezone)
+    return GeneralSettingsOut(
+        timezone=panel_settings.timezone, pool_cooldown_days=panel_settings.pool_cooldown_days
+    )
 
 
 class SecretStatus(BaseModel):

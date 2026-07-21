@@ -18,6 +18,7 @@ from core.config import get_settings
 from core.db import get_session_factory
 from core.logging import configure_logging, get_logger
 from core.models.channel_bot import ChannelBot
+from core.services.heartbeat import WORKER_BOTS, record_heartbeat
 from interfaces.bots.handlers import router
 
 logger = get_logger(__name__)
@@ -27,6 +28,18 @@ SUPERVISOR_BACKOFF_MAX_SECONDS = 300
 # Проработал дольше этого — считаем запуск успешным и сбрасываем бэкофф
 # (иначе бот, падающий раз в час, докрутил бы паузу до максимума навсегда).
 SUPERVISOR_STABLE_UPTIME_SECONDS = 600
+HEARTBEAT_INTERVAL_SECONDS = 60
+
+
+async def heartbeat_loop(worker_name: str, bot_count: int) -> None:
+    """Бьётся раз в минуту, пока процесс жив — long-polling воркеры не имеют
+    «тика», поэтому heartbeat отдельной корутиной (аудит, п.3.1)."""
+    while True:
+        try:
+            await record_heartbeat(worker_name, detail=f"{bot_count} бот(ов)")
+        except Exception:
+            logger.exception("bots.heartbeat_failed")
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 
 async def run_bot(channel_bot: ChannelBot) -> None:
@@ -80,7 +93,10 @@ async def main() -> None:
         logger.warning("bots.no_active_bots")
         return
 
-    await asyncio.gather(*(supervise_bot(channel_bot) for channel_bot in channel_bots))
+    await asyncio.gather(
+        heartbeat_loop(WORKER_BOTS, len(channel_bots)),
+        *(supervise_bot(channel_bot) for channel_bot in channel_bots),
+    )
 
 
 if __name__ == "__main__":

@@ -32,6 +32,11 @@ class PanelSettings(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # (аудит, баг К3). Default — Москва, самый частый кейс.
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
 
+    # Не переиспользовать один и тот же pool_post чаще, чем раз в столько дней
+    # (аудит, п.3.3): без этого тема с пулом из 2 постов крутила бы их
+    # попеременно без конца. 0 отключает кулдаун.
+    pool_cooldown_days: Mapped[int] = mapped_column(Integer, default=7)
+
     anthropic_api_key_override: Mapped[str] = mapped_column(Text, default="")
     voyage_api_key_override: Mapped[str] = mapped_column(Text, default="")
     telegram_api_id_override: Mapped[int] = mapped_column(Integer, default=0)

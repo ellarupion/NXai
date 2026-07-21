@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { sourceChannelsQuery, telethonSessionsQuery, themesQuery } from "../api/queries";
-import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select } from "../components/ui";
+import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, Select } from "../components/ui";
 import type { SourceChannel } from "../types";
 
 function TrustScoreBadge({ value }: { value: number }) {
@@ -189,6 +189,11 @@ export function SourceChannels() {
         выбранный аккаунт-читалку и подписывает его на канал — иначе живые апдейты по
         нему не приходят (ARCHITECTURE.md §7).
       </p>
+      <Callout>
+        Новый источник начинает читаться в реальном времени только после перезапуска
+        процесса-читалки на сервере (докачка истории подхватит его и раньше, в
+        ближайшем цикле).
+      </Callout>
 
       <AddSourceChannelForm />
 

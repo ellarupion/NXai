@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { telethonSessionsQuery } from "../api/queries";
-import { Button, Card, EmptyState, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
 import type { TelethonLoginStartResult, TelethonLoginStepResult, TelethonSession } from "../types";
 
 type WizardStep = "phone" | "code" | "password";
@@ -255,6 +255,10 @@ export function TelethonSessions() {
         ограниченное число каналов — заводите несколько по мере роста списка
         источников, а не один на всё (ARCHITECTURE.md §7).
       </p>
+      <Callout>
+        Новый аккаунт начинает читать каналы только после перезапуска процесса-читалки
+        на сервере.
+      </Callout>
 
       <LoginWizard />
 

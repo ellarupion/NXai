@@ -41,6 +41,11 @@ export function EmptyState({ message }: { message: string }) {
   return <p className="py-8 text-center text-sm text-ink-muted">{message}</p>;
 }
 
+export function Callout({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" }) {
+  const styles = tone === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted";
+  return <div className={`rounded-lg p-3 text-sm ${styles}`}>{children}</div>;
+}
+
 export function Button({
   children,
   variant = "primary",

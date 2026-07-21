@@ -16,6 +16,7 @@ from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.telethon_session import TelethonSession
 from core.models.theme import Theme
+from core.models.worker_heartbeat import WorkerHeartbeat
 
 __all__ = [
     "Base",
@@ -34,4 +35,5 @@ __all__ = [
     "Admin",
     "AuditLog",
     "PanelSettings",
+    "WorkerHeartbeat",
 ]

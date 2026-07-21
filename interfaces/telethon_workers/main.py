@@ -24,6 +24,7 @@ from core.logging import configure_logging, get_logger
 from core.models.source_channel import SourceChannel
 from core.models.telethon_session import TelethonSession
 from core.services.effective_settings import get_effective_settings
+from core.services.heartbeat import WORKER_INGEST, record_heartbeat
 from core.services.ingest_candidates import IncomingCandidate, IngestCandidatesService
 
 logger = get_logger(__name__)
@@ -31,6 +32,17 @@ logger = get_logger(__name__)
 SUPERVISOR_BACKOFF_INITIAL_SECONDS = 5
 SUPERVISOR_BACKOFF_MAX_SECONDS = 300
 SUPERVISOR_STABLE_UPTIME_SECONDS = 600
+HEARTBEAT_INTERVAL_SECONDS = 60
+
+
+async def heartbeat_loop(session_count: int) -> None:
+    """Бьётся раз в минуту, пока процесс жив (аудит, п.3.1)."""
+    while True:
+        try:
+            await record_heartbeat(WORKER_INGEST, detail=f"{session_count} сессия(й)")
+        except Exception:
+            logger.exception("telethon_worker.heartbeat_failed")
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
 
 
 async def _source_chat_ids_for(session_id) -> list[int]:
@@ -126,7 +138,10 @@ async def main() -> None:
         logger.warning("telethon_worker.no_active_sessions")
         return
 
-    await asyncio.gather(*(supervise_session_worker(ts, effective_settings) for ts in telethon_sessions))
+    await asyncio.gather(
+        heartbeat_loop(len(telethon_sessions)),
+        *(supervise_session_worker(ts, effective_settings) for ts in telethon_sessions),
+    )
 
 
 if __name__ == "__main__":
