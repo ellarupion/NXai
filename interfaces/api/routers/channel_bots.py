@@ -10,8 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.llm.client import LLMClient
 from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
 from core.models.enums import BotRole
+from core.services.effective_settings import get_effective_settings
+from core.services.style_extractor import StyleExtractorError, extract_style
 from interfaces.api.auth import require_superadmin
 from interfaces.api.deps import get_db
 
@@ -91,10 +94,33 @@ class ChannelBotUpdate(BaseModel):
     theme_id: UUID | None = None
 
 
+class ExtractStyleRequest(BaseModel):
+    reference_posts: list[str]
+
+
+class ExtractStyleResponse(BaseModel):
+    suggested_persona: str
+
+
 @router.get("", response_model=list[ChannelBotOut])
 async def list_channel_bots(session: AsyncSession = Depends(get_db)) -> list[ChannelBotOut]:
     result = await session.execute(select(ChannelBot).order_by(ChannelBot.role, ChannelBot.created_at))
     return [ChannelBotOut.from_model(bot) for bot in result.scalars().all()]
+
+
+@router.post("/extract-style", response_model=ExtractStyleResponse)
+async def extract_style_endpoint(
+    payload: ExtractStyleRequest, session: AsyncSession = Depends(get_db)
+) -> ExtractStyleResponse:
+    """StyleExtractor (аудит, п.7.2): по примерам постов LLM предлагает
+    persona-промпт. Ничего не сохраняет — оператор вставляет результат в
+    персону бота сам."""
+    settings = await get_effective_settings(session)
+    try:
+        suggested = await extract_style(LLMClient(settings), payload.reference_posts)
+    except StyleExtractorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ExtractStyleResponse(suggested_persona=suggested)
 
 
 @router.post("", response_model=ChannelBotOut)

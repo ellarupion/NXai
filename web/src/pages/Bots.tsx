@@ -201,6 +201,73 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
   );
 }
 
+function StyleExtractorCard() {
+  const [refs, setRefs] = useState("");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const extract = useMutation({
+    mutationFn: () => {
+      const posts = refs.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+      return api.post<{ suggested_persona: string }>("/channel-bots/extract-style", {
+        reference_posts: posts,
+      });
+    },
+    onSuccess: (data) => {
+      setError(null);
+      setSuggestion(data.suggested_persona);
+    },
+    onError: (err) => {
+      setSuggestion(null);
+      setError(err instanceof ApiError ? err.message : "Не удалось выучить стиль");
+    },
+  });
+
+  return (
+    <Card>
+      <h2 className="mb-1 text-sm font-semibold text-ink">Выучить стиль по постам</h2>
+      <p className="mb-3 text-sm text-ink-muted">
+        Вставьте несколько реальных постов канала (по одному, разделяя пустой строкой) —
+        ИИ опишет его голос и предложит готовую персону. Скопируйте её в поле «Персона»
+        нужного бота выше.
+      </p>
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setError(null);
+          extract.mutate();
+        }}
+      >
+        <Textarea
+          value={refs}
+          onChange={(e) => setRefs(e.target.value)}
+          placeholder={"Пост 1…\n\nПост 2…\n\nПост 3…"}
+          rows={6}
+        />
+        <Button type="submit" disabled={extract.isPending || !refs.trim()} className="self-start">
+          {extract.isPending ? "Анализирую…" : "Выучить стиль"}
+        </Button>
+      </form>
+      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+      {suggestion && (
+        <div className="mt-3 flex flex-col gap-2">
+          <span className="text-xs font-medium text-ink">Предлагаемая персона:</span>
+          <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-sm text-ink">{suggestion}</p>
+          <Button
+            type="button"
+            variant="secondary"
+            className="self-start"
+            onClick={() => navigator.clipboard?.writeText(suggestion)}
+          >
+            Скопировать
+          </Button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function Bots() {
   const bots = useQuery(channelBotsQuery());
   const themes = useQuery(themesQuery());
@@ -221,6 +288,8 @@ export function Bots() {
       </Callout>
 
       <CreateBotForm />
+
+      <StyleExtractorCard />
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-ink">Все боты</h2>

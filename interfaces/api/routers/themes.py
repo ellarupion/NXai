@@ -21,6 +21,8 @@ class ThemeOut(BaseModel):
     name: str
     default_style_prompt: str
     is_active: bool
+    digest_enabled: bool
+    digest_hour: int
 
     model_config = {"from_attributes": True}
 
@@ -36,6 +38,8 @@ class ThemeUpdate(BaseModel):
     name: str | None = None
     default_style_prompt: str | None = None
     is_active: bool | None = None
+    digest_enabled: bool | None = None
+    digest_hour: int | None = None
 
 
 @router.get("", response_model=list[ThemeOut])
@@ -78,6 +82,12 @@ async def update_theme(
         theme.default_style_prompt = payload.default_style_prompt
     if payload.is_active is not None:
         theme.is_active = payload.is_active
+    if payload.digest_enabled is not None:
+        theme.digest_enabled = payload.digest_enabled
+    if payload.digest_hour is not None:
+        if not 0 <= payload.digest_hour <= 23:
+            raise HTTPException(status_code=400, detail="Час дайджеста должен быть от 0 до 23")
+        theme.digest_hour = payload.digest_hour
 
     await session.flush()
     await session.commit()

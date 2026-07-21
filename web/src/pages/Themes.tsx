@@ -133,6 +133,28 @@ function ThemeRow({ theme }: { theme: Theme }) {
       {theme.default_style_prompt && (
         <p className="text-sm text-ink-muted">{theme.default_style_prompt}</p>
       )}
+      <label className="flex items-center gap-2 text-xs text-ink-muted">
+        <input
+          type="checkbox"
+          checked={theme.digest_enabled}
+          onChange={(e) => update.mutate({ digest_enabled: e.target.checked })}
+          disabled={update.isPending}
+        />
+        <span>AI-дайджест раз в сутки в</span>
+        <select
+          value={theme.digest_hour}
+          onChange={(e) => update.mutate({ digest_hour: Number(e.target.value) })}
+          disabled={update.isPending || !theme.digest_enabled}
+          className="rounded border border-border bg-surface px-1 py-0.5"
+        >
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={h}>
+              {String(h).padStart(2, "0")}:00
+            </option>
+          ))}
+        </select>
+        <span>(по таймзоне проекта)</span>
+      </label>
       {error && <p className="text-sm text-bad">{error}</p>}
     </li>
   );

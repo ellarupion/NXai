@@ -40,6 +40,7 @@ from core.services.admin_notify import (
 )
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
+from core.services.digest import build_digest
 from core.services.effective_settings import get_effective_settings
 from core.services.heartbeat import WORKER_SCHEDULER, record_heartbeat
 from core.services.media import download_candidate_photos
@@ -59,6 +60,7 @@ PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
 HEARTBEAT_INTERVAL_SECONDS = 60
 PUBLICATION_METRICS_INTERVAL_MINUTES = 30
+DIGEST_INTERVAL_MINUTES = 20
 # Собираем метрики только у публикаций моложе этого возраста: у свежих постов
 # просмотры/форварды ещё растут, у старых давно замерли — гонять по ним
 # Telethon каждый тик впустую.
@@ -494,6 +496,61 @@ async def publication_metrics_job() -> None:
         logger.info("scheduler.publication_metrics_done", collected=collected)
 
 
+async def digest_job() -> None:
+    """Раз в сутки на тему собирает AI-дайджест топ-постов (аудит, п.7.1) в
+    очередь на одобрение — когда наступил заданный час в таймзоне проекта и
+    сегодня дайджест ещё не делали. Тик частый (каждые 20 мин), а не ровно в
+    :00 нужного часа, чтобы не пропустить окно, если scheduler в этот момент
+    перезапускался; повтор в тот же день гасит проверка «уже есть за сегодня»."""
+    session_factory = get_session_factory()
+    built = 0
+    async with session_factory() as session:
+        panel_settings = await get_or_create_panel_settings(session)
+        tz = resolve_zoneinfo(panel_settings.timezone)
+        settings = await get_effective_settings(session)
+        llm = LLMClient(settings)
+        now = datetime.now(timezone.utc)
+        local_now = now.astimezone(tz)
+        today_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_start_utc = today_start_local.astimezone(timezone.utc)
+
+        result = await session.execute(
+            select(Theme.id, Theme.digest_hour).where(
+                Theme.is_active.is_(True), Theme.digest_enabled.is_(True)
+            )
+        )
+        themes = [(theme_id, digest_hour) for theme_id, digest_hour in result.all()]
+
+        for theme_id, digest_hour in themes:
+            if local_now.hour < digest_hour:
+                continue
+            try:
+                already = await session.scalar(
+                    select(CandidatePost.id)
+                    .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
+                    .where(
+                        SourceChannel.theme_id == theme_id,
+                        CandidatePost.tg_message_id < 0,  # дайджесты — синтетические, отрицательные id
+                        CandidatePost.created_at >= today_start_utc,
+                    )
+                    .limit(1)
+                )
+                if already is not None:
+                    continue
+                digest_id = await build_digest(session, theme_id, llm, now)
+                if digest_id is not None:
+                    await session.commit()
+                    built += 1
+                else:
+                    await session.rollback()
+            except Exception:
+                await session.rollback()
+                logger.exception("scheduler.digest_failed", theme_id=str(theme_id))
+
+    if built:
+        logger.info("scheduler.digest_done", built=built)
+
+
 async def _notify_admin(session, text: str) -> None:
     """Тихо no-op, если admin-бот не создан или ему ещё не написали /start
     (ChannelBot.notify_chat_id — см. interfaces/bots/handlers/admin_start.py) —
@@ -567,6 +624,10 @@ def build_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         publication_metrics_job, "interval", minutes=PUBLICATION_METRICS_INTERVAL_MINUTES,
         id="publication_metrics", max_instances=1,
+    )
+    scheduler.add_job(
+        digest_job, "interval", minutes=DIGEST_INTERVAL_MINUTES,
+        id="digest", max_instances=1,
     )
 
     return scheduler

@@ -6,6 +6,8 @@ export interface Theme {
   name: string;
   default_style_prompt: string;
   is_active: boolean;
+  digest_enabled: boolean;
+  digest_hour: number;
 }
 
 export interface SourceChannel {
