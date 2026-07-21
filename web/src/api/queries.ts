@@ -3,6 +3,7 @@ import type {
   Alert,
   ChannelBot,
   DashboardStats,
+  Engagement,
   GeneralSettings,
   Me,
   Onboarding,
@@ -80,4 +81,9 @@ export const alertsQuery = () => ({
 export const onboardingQuery = () => ({
   queryKey: ["onboarding"],
   queryFn: () => api.get<Onboarding>("/dashboard/onboarding"),
+});
+
+export const engagementQuery = () => ({
+  queryKey: ["engagement"],
+  queryFn: () => api.get<Engagement>("/dashboard/engagement"),
 });

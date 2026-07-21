@@ -26,6 +26,7 @@ from core.services.review import (
 )
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
+from interfaces.bots.notify import push_review_cards
 
 router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(get_current_admin)])
 
@@ -63,6 +64,22 @@ async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depen
         results = await ForceGenerateService(session, settings).generate(payload.theme_id, count)
     except ForceGenerateError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Дублируем свежую очередь в admin-бот карточками с кнопками (аудит, п.6.1):
+    # можно одобрять прямо из Telegram, не открывая панель.
+    await push_review_cards(
+        session,
+        [
+            {
+                "candidate_id": r.candidate_id,
+                "source_channel_title": r.source_channel_title,
+                "rewritten_text": r.rewritten_text,
+                "score": r.score,
+            }
+            for r in results
+        ],
+    )
+
     return [
         GeneratedPostOut(
             candidate_id=r.candidate_id,

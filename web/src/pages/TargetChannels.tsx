@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { targetChannelsQuery, themesQuery } from "../api/queries";
+import { targetChannelsQuery, telethonSessionsQuery, themesQuery } from "../api/queries";
 import {
   Button,
   Card,
@@ -83,6 +83,7 @@ function CreateTargetChannelForm() {
 
 function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetChannel; themeName: string }) {
   const queryClient = useQueryClient();
+  const sessions = useQuery(telethonSessionsQuery());
   const [signature, setSignature] = useState(targetChannel.signature);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +95,19 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
       queryClient.invalidateQueries({ queryKey: ["target-channels"] });
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось обновить"),
+  });
+
+  const setMetricsSession = useMutation({
+    mutationFn: (metricsSessionId: string | null) =>
+      api.put<TargetChannel>(`/target-channels/${targetChannel.id}/metrics-session`, {
+        metrics_session_id: metricsSessionId,
+      }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["target-channels"] });
+      queryClient.invalidateQueries({ queryKey: ["engagement"] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось назначить"),
   });
 
   return (
@@ -137,6 +151,22 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
           </Button>
         )}
       </form>
+      <label className="flex items-center gap-2 text-xs text-ink-muted">
+        <span className="whitespace-nowrap">Метрики читает:</span>
+        <Select
+          value={targetChannel.metrics_session_id ?? ""}
+          onChange={(e) => setMetricsSession.mutate(e.target.value || null)}
+          disabled={setMetricsSession.isPending}
+          className="flex-1"
+        >
+          <option value="">— не собирать —</option>
+          {sessions.data?.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
+      </label>
       {error && <p className="text-xs text-bad">{error}</p>}
     </li>
   );

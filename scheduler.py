@@ -6,7 +6,7 @@
 инстансом на весь процесс (см. ARCHITECTURE.md §2)."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -22,6 +22,7 @@ from core.models.ad_detection import AdDetection
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
 from core.models.enums import AdDetectionAction, BotRole, CandidatePostStatus
+from core.models.metrics_snapshot import PublicationMetricsSnapshot
 from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
 from core.models.publication import Publication
@@ -57,6 +58,11 @@ DEDUP_REWRITE_INTERVAL_MINUTES = 5
 PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
 HEARTBEAT_INTERVAL_SECONDS = 60
+PUBLICATION_METRICS_INTERVAL_MINUTES = 30
+# Собираем метрики только у публикаций моложе этого возраста: у свежих постов
+# просмотры/форварды ещё растут, у старых давно замерли — гонять по ним
+# Telethon каждый тик впустую.
+PUBLICATION_METRICS_MAX_AGE = timedelta(days=3)
 
 
 async def heartbeat_job() -> None:
@@ -426,6 +432,68 @@ async def ad_watchdog_job() -> None:
         logger.info("scheduler.ad_watchdog_done", covered=covered)
 
 
+async def publication_metrics_job() -> None:
+    """Собирает views/forwards НАШИХ публикаций (аудит, п.6.2) через Telethon-
+    сессию, подписанную на целевой канал (TargetChannel.metrics_session_id) —
+    Bot API этих метрик не отдаёт. Пишет точку временного ряда
+    PublicationMetricsSnapshot; так замыкается цикл «скоринг чужого → наш пост
+    → как зашёл», доказывающий ценность скоринга цифрами."""
+    session_factory = get_session_factory()
+    collected = 0
+    async with session_factory() as session:
+        settings = await get_effective_settings(session)
+        since = datetime.now(timezone.utc) - PUBLICATION_METRICS_MAX_AGE
+        result = await session.execute(
+            select(Publication.id, Publication.tg_message_id, TargetChannel.tg_chat_id,
+                   TargetChannel.metrics_session_id)
+            .join(TargetChannel, TargetChannel.id == Publication.target_channel_id)
+            .where(
+                Publication.published_at >= since,
+                TargetChannel.metrics_session_id.is_not(None),
+            )
+        )
+        rows = result.all()
+
+        stats_clients: dict[str, SourceStatsClient] = {}
+        try:
+            for publication_id, tg_message_id, tg_chat_id, metrics_session_id in rows:
+                try:
+                    session_id = str(metrics_session_id)
+                    if session_id not in stats_clients:
+                        telethon_session = await session.get(TelethonSession, metrics_session_id)
+                        if telethon_session is None:
+                            continue
+                        client = SourceStatsClient(telethon_session.session_string, settings)
+                        await client.connect()
+                        stats_clients[session_id] = client
+
+                    stats = await stats_clients[session_id].get_post_stats(tg_chat_id, tg_message_id)
+                    if stats is None:
+                        continue
+                    session.add(
+                        PublicationMetricsSnapshot(
+                            publication_id=publication_id,
+                            views=stats.views,
+                            forwards=stats.forwards,
+                            reactions=None,
+                            taken_at=datetime.now(timezone.utc),
+                        )
+                    )
+                    await session.commit()
+                    collected += 1
+                except Exception:
+                    await session.rollback()
+                    logger.exception(
+                        "scheduler.publication_metrics_failed", publication_id=str(publication_id)
+                    )
+        finally:
+            for client in stats_clients.values():
+                await client.disconnect()
+
+    if collected:
+        logger.info("scheduler.publication_metrics_done", collected=collected)
+
+
 async def _notify_admin(session, text: str) -> None:
     """Тихо no-op, если admin-бот не создан или ему ещё не написали /start
     (ChannelBot.notify_chat_id — см. interfaces/bots/handlers/admin_start.py) —
@@ -496,10 +564,10 @@ def build_scheduler() -> AsyncIOScheduler:
         ad_watchdog_job, "interval", minutes=AD_WATCHDOG_INTERVAL_MINUTES,
         id="ad_watchdog", max_instances=1,
     )
-
-    # TODO(ROADMAP.md Phase 5): metrics_collection_job (AnalyticsService,
-    # PublicationMetricsSnapshot) и дайджесты в admin-бота — требуют выделенной
-    # Telethon-сессии, состоящей в целевых каналах, и опроса ChannelBot(role=ADMIN).
+    scheduler.add_job(
+        publication_metrics_job, "interval", minutes=PUBLICATION_METRICS_INTERVAL_MINUTES,
+        id="publication_metrics", max_instances=1,
+    )
 
     return scheduler
 

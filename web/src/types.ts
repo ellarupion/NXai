@@ -28,6 +28,21 @@ export interface TargetChannel {
   title: string;
   signature: string;
   is_active: boolean;
+  metrics_session_id: string | null;
+}
+
+export interface PublicationEngagement {
+  publication_id: string;
+  published_at: string;
+  channel_title: string;
+  preview: string;
+  views: number | null;
+  forwards: number | null;
+}
+
+export interface Engagement {
+  metrics_configured: boolean;
+  publications: PublicationEngagement[];
 }
 
 export interface Me {

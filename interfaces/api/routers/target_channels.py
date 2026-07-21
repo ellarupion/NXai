@@ -30,6 +30,7 @@ class TargetChannelOut(BaseModel):
     title: str
     signature: str
     is_active: bool
+    metrics_session_id: UUID | None
 
     model_config = {"from_attributes": True}
 
@@ -43,6 +44,10 @@ class TargetChannelCreate(BaseModel):
 class TargetChannelUpdate(BaseModel):
     signature: str | None = None
     is_active: bool | None = None
+
+
+class SetMetricsSessionPayload(BaseModel):
+    metrics_session_id: UUID | None
 
 
 async def _bot_for_theme(session: AsyncSession, theme_id: UUID) -> Bot:
@@ -94,6 +99,24 @@ async def update_target_channel(
         target_channel.signature = payload.signature
     if payload.is_active is not None:
         target_channel.is_active = payload.is_active
+    await session.flush()
+    await session.commit()
+    return target_channel
+
+
+@router.put("/{target_channel_id}/metrics-session", response_model=TargetChannelOut)
+async def set_metrics_session(
+    target_channel_id: UUID,
+    payload: SetMetricsSessionPayload,
+    session: AsyncSession = Depends(get_db),
+) -> TargetChannel:
+    """Назначает Telethon-сессию, читающую метрики этого канала (аудит, п.6.2).
+    Аккаунт этой сессии должен быть участником канала, иначе Telethon не отдаст
+    статистику; None — перестать собирать метрики."""
+    target_channel = await session.get(TargetChannel, target_channel_id)
+    if target_channel is None:
+        raise HTTPException(status_code=404, detail="TargetChannel not found")
+    target_channel.metrics_session_id = payload.metrics_session_id
     await session.flush()
     await session.commit()
     return target_channel

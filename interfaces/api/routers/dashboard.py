@@ -1,10 +1,10 @@
-"""Агрегированная статистика для дашборда — чистые COUNT/GROUP BY по уже
-существующим таблицам, без похода в Telegram (живой сбор
-views/forwards/engagement публикаций — core/services/analytics.py, требует
-выделенной Telethon-сессии в целевых каналах и отдельного scheduler-job,
-ROADMAP.md Phase 5, здесь не реализовано)."""
+"""Агрегированная статистика для дашборда — в основном COUNT/GROUP BY по уже
+существующим таблицам. Живой сбор views/forwards публикаций читается из
+PublicationMetricsSnapshot (наполняется scheduler.py:publication_metrics_job
+через Telethon-сессию, подписанную на целевой канал), эндпоинтом /engagement."""
 
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -15,6 +15,7 @@ from core.config import get_settings
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus, PoolPostStatus
+from core.models.metrics_snapshot import PublicationMetricsSnapshot
 from core.models.pool_post import PoolPost
 from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
@@ -184,3 +185,71 @@ async def get_onboarding(session: AsyncSession = Depends(get_db)) -> OnboardingO
         OnboardingStep(key="source", label="Добавить источники", done=source_exists, href="/source-channels"),
     ]
     return OnboardingOut(all_done=all(s.done for s in steps), steps=steps)
+
+
+class PublicationEngagementOut(BaseModel):
+    publication_id: UUID
+    published_at: datetime
+    channel_title: str
+    preview: str
+    views: int | None
+    forwards: int | None
+
+
+class EngagementOut(BaseModel):
+    # Метрики собираются, только если у целевого канала задана
+    # metrics_session_id; иначе список пуст и панель это поясняет.
+    metrics_configured: bool
+    publications: list[PublicationEngagementOut]
+
+
+@router.get("/engagement", response_model=EngagementOut)
+async def get_engagement(session: AsyncSession = Depends(get_db)) -> EngagementOut:
+    """«Как заходят посты» (аудит, п.6.2): последние публикации с последними
+    снятыми views/forwards. Замыкает цикл скоринг→публикация→отдача."""
+    metrics_configured = bool(
+        await session.scalar(
+            select(TargetChannel.id).where(TargetChannel.metrics_session_id.is_not(None)).limit(1)
+        )
+    )
+
+    # Последний снапшот на публикацию — коррелированным подзапросом по max(taken_at).
+    latest = (
+        select(
+            PublicationMetricsSnapshot.publication_id,
+            func.max(PublicationMetricsSnapshot.taken_at).label("latest_at"),
+        )
+        .group_by(PublicationMetricsSnapshot.publication_id)
+        .subquery()
+    )
+    result = await session.execute(
+        select(
+            Publication.id,
+            Publication.published_at,
+            TargetChannel.title,
+            PublicationMetricsSnapshot.views,
+            PublicationMetricsSnapshot.forwards,
+        )
+        .join(TargetChannel, TargetChannel.id == Publication.target_channel_id)
+        .join(latest, latest.c.publication_id == Publication.id)
+        .join(
+            PublicationMetricsSnapshot,
+            (PublicationMetricsSnapshot.publication_id == Publication.id)
+            & (PublicationMetricsSnapshot.taken_at == latest.c.latest_at),
+        )
+        .order_by(PublicationMetricsSnapshot.forwards.desc().nulls_last())
+        .limit(10)
+    )
+
+    publications = [
+        PublicationEngagementOut(
+            publication_id=pub_id,
+            published_at=published_at,
+            channel_title=title,
+            preview="",
+            views=views,
+            forwards=forwards,
+        )
+        for pub_id, published_at, title, views, forwards in result.all()
+    ]
+    return EngagementOut(metrics_configured=metrics_configured, publications=publications)

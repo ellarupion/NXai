@@ -1,9 +1,47 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { alertsQuery, dashboardStatsQuery, onboardingQuery } from "../api/queries";
+import { alertsQuery, dashboardStatsQuery, engagementQuery, onboardingQuery } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
 import { plural } from "../lib/plural";
 import type { Alert, WorkerStatus } from "../types";
+
+function EngagementCard() {
+  const { data } = useQuery(engagementQuery());
+  if (!data) return null;
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Как заходят посты</h2>
+      {!data.metrics_configured && (
+        <p className="text-sm text-ink-muted">
+          Сбор метрик публикаций не настроен. Назначьте аккаунт-читалку каналу на странице{" "}
+          <Link to="/target-channels" className="text-accent underline underline-offset-2">
+            «Каналы»
+          </Link>{" "}
+          (аккаунт должен состоять в этом канале) — и здесь появятся просмотры и пересылки
+          ваших постов.
+        </p>
+      )}
+      {data.metrics_configured && data.publications.length === 0 && (
+        <p className="text-sm text-ink-muted">
+          Метрики ещё не собраны — они появятся в течение получаса после первой публикации.
+        </p>
+      )}
+      {data.publications.length > 0 && (
+        <ul className="flex flex-col divide-y divide-border">
+          {data.publications.map((p) => (
+            <li key={p.publication_id} className="flex items-center justify-between gap-3 py-2">
+              <span className="truncate text-sm text-ink">{p.channel_title}</span>
+              <span className="font-mono text-xs tabular-nums text-ink-muted whitespace-nowrap">
+                👁 {p.views ?? "—"} · 🔁 {p.forwards ?? "—"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
 
 function OnboardingCard() {
   const { data } = useQuery(onboardingQuery());
@@ -204,6 +242,8 @@ export function Dashboard() {
           </ul>
         )}
       </Card>
+
+      <EngagementCard />
 
       <WorkersCard workers={data.workers} />
     </div>

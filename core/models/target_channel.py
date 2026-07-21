@@ -28,4 +28,12 @@ class TargetChannel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     signature: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
+    # Telethon-сессия, подписанная на ЭТОТ целевой канал, — читает метрики наших
+    # же публикаций (views/forwards), чего Bot API не отдаёт (аудит, п.6.2).
+    # NULL — метрики по каналу не собираем. Обычно это отдельный аккаунт-читалка,
+    # добавленный в канал, а не публикующий бот.
+    metrics_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("telethon_sessions.id", ondelete="SET NULL"), nullable=True
+    )
+
     theme: Mapped["Theme"] = relationship(back_populates="target_channels")
