@@ -20,22 +20,31 @@ Cloudflare) — [`DEPLOY.md`](./DEPLOY.md).
 
 Phase 0 — скелет проекта: ядро (config/db/llm/embeddings), полная схема
 данных, docker-compose, JWT-авторизация панели, заготовки сервисов и
-интерфейсов. Миграция и весь путь `docker compose up` → `alembic upgrade
-head` → создание админа → `/health`/`/auth/login` проверены end-to-end на
-реальном Postgres+pgvector. Бизнес-логика ingestion/scoring/rewrite/
-scheduling реализована на урезанном объёме (см. `core/services/`) — полная
-оркестрация нескольких Telethon-сессий и React-панель ещё предстоят, см.
-`ROADMAP.md`.
+интерфейсов, минимальная веб-панель (`web/` — вход, темы, источники).
+Весь путь `docker compose up` → `alembic upgrade head` → создание админа →
+логин в браузере → создание темы → назначение темы источнику проверен
+end-to-end (реальный Postgres+pgvector + реальный собранный фронтенд в
+headless-браузере). Бизнес-логика ingestion/scoring/rewrite/scheduling
+реализована на урезанном объёме (см. `core/services/`) — полная оркестрация
+нескольких Telethon-сессий, пул кандидатов и статистика в панели ещё
+предстоят, см. `ROADMAP.md`.
 
 ## Стек
 
-Python 3.12, Telethon (MTProto-чтение чужих каналов), aiogram 3 (боты
-на публикацию), FastAPI + SQLAlchemy(async) + asyncpg + alembic + pgvector,
-APScheduler, Redis (шина событий), litellm (LLM-рерайт поверх Anthropic).
+Backend: Python 3.12, Telethon (MTProto-чтение чужих каналов), aiogram 3
+(боты на публикацию), FastAPI + SQLAlchemy(async) + asyncpg + alembic +
+pgvector, APScheduler, Redis (шина событий), litellm (LLM-рерайт поверх
+Anthropic).
 
-## Быстрый старт (после наполнения Phase 1)
+Frontend (`web/`): Vite + React 19 + TypeScript + react-router +
+@tanstack/react-query + Tailwind v4 — тот же стек, что у `web/` в NX.
+
+## Быстрый старт
 
 ```bash
 cp .env.example .env   # заполнить токены/ключи
 docker compose up --build
+
+cp web/.env.example web/.env
+cd web && npm install && npm run dev   # панель на localhost:5173, проксирует /api на :8000
 ```

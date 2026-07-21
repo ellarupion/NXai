@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/* Токены — та же приглушённая палитра/структура, что в NX web/src/index.css,
+   без самостоятельно захостенных шрифтов (упрощение — system-ui вместо IBM Plex,
+   добавить позже тривиально, если понадобится). Только системная тёмная тема
+   через media-запрос — ручного переключателя пока нет. */
+:root {
+  --bg: #f1f4f6;
+  --surface: #ffffff;
+  --surface-2: #e8edf1;
+  --border: #dce3e8;
+  --ink: #2a3742;
+  --ink-muted: #647587;
+  --accent: #2896a5;
+  --accent-strong: #1f7986;
+  --accent-soft: #e1f0f2;
+  --accent-ink: #ffffff;
+  --good: #35a575;
+  --good-soft: #e5f5ed;
+  --bad: #d15b5b;
+  --bad-soft: #fbeaea;
+  --shadow: 0 1px 2px rgba(42, 55, 66, 0.04), 0 4px 14px rgba(42, 55, 66, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17212b;
+    --surface: #1e2a35;
+    --surface-2: #26333f;
+    --border: #324150;
+    --ink: #dee6ec;
+    --ink-muted: #90a0ae;
+    --accent: #4fb8c4;
+    --accent-strong: #6bcbd5;
+    --accent-soft: #1e3a40;
+    --accent-ink: #0b1e21;
+    --good: #57bd8e;
+    --good-soft: #1b3a2c;
+    --bad: #db7676;
+    --bad-soft: #3d2323;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.16), 0 6px 18px rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* Tailwind v4 CSS-first theming: bg-accent/text-ink-muted/border-border и т.п.
+   читают значение из CSS-переменной в момент рендера, не запекаются на этапе
+   сборки — тот же трюк, что в NX. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+@supports (overflow-x: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.shadow-token {
+  box-shadow: var(--shadow);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
+}
