@@ -3,14 +3,108 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { sourceChannelsQuery, telethonSessionsQuery, themesQuery } from "../api/queries";
 import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, Select } from "../components/ui";
+import { plural } from "../lib/plural";
 import type { SourceChannel } from "../types";
+
+function formatScanned(iso: string | null): string {
+  if (!iso) return "ещё не сканировался";
+  const then = new Date(iso).getTime();
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return "просканирован только что";
+  if (mins < 60) return `просканирован ${mins} ${plural(mins, "минуту", "минуты", "минут")} назад`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `просканирован ${hours} ${plural(hours, "час", "часа", "часов")} назад`;
+  const days = Math.floor(hours / 24);
+  return `просканирован ${days} ${plural(days, "день", "дня", "дней")} назад`;
+}
+
+function SourceRow({ channel }: { channel: SourceChannel }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["source-channels"] });
+
+  const setActive = useMutation({
+    mutationFn: (isActive: boolean) =>
+      api.put<SourceChannel>(`/source-channels/${channel.id}/active`, { is_active: isActive }),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось изменить"),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/source-channels/${channel.id}`),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось удалить"),
+  });
+
+  const busy = setActive.isPending || remove.isPending;
+
+  return (
+    <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate font-medium text-ink">{channel.title}</p>
+            <TrustScoreBadge value={channel.trust_score} />
+            {!channel.is_active && (
+              <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted">
+                выключен
+              </span>
+            )}
+          </div>
+          <p className="truncate text-xs text-ink-muted">
+            {channel.tg_username ? `@${channel.tg_username}` : channel.tg_chat_id ?? "—"} ·{" "}
+            {channel.candidate_count} {plural(channel.candidate_count, "пост", "поста", "постов")} ·{" "}
+            {formatScanned(channel.last_scanned_at)}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <AssignSessionCell channel={channel} />
+          <AssignThemeCell channel={channel} />
+        </div>
+      </div>
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={() => setActive.mutate(!channel.is_active)}
+          disabled={busy}
+          className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+        >
+          {channel.is_active ? "Выключить" : "Включить"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              window.confirm(
+                `Удалить источник «${channel.title}» вместе со всеми его постами? Это необратимо. Чтобы просто убрать из ротации, используйте «Выключить».`,
+              )
+            ) {
+              remove.mutate();
+            }
+          }}
+          disabled={busy}
+          className="text-xs text-bad underline decoration-dotted hover:opacity-80"
+        >
+          Удалить
+        </button>
+      </div>
+      {error && <p className="text-xs text-bad">{error}</p>}
+    </li>
+  );
+}
 
 function TrustScoreBadge({ value }: { value: number }) {
   const styles =
     value >= 1.0 ? "bg-good-soft text-good" : value >= 0.5 ? "bg-surface-2 text-ink-muted" : "bg-bad-soft text-bad";
   return (
     <span
-      title="Доверие к источнику — автоматически растёт на успешных рерайтах, падает на дублях/reject (core/services/trust_score.py)"
+      title="Доверие к источнику — растёт автоматически на удачных постах, падает на дублях и отклонённых"
       className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${styles}`}
     >
       trust {value.toFixed(2)}
@@ -185,9 +279,9 @@ export function SourceChannels() {
       </div>
 
       <p className="text-sm text-ink-muted">
-        Чужие каналы, которые читает Telethon-пул. Добавление резолвит @username через
-        выбранный аккаунт-читалку и подписывает его на канал — иначе живые апдейты по
-        нему не приходят (ARCHITECTURE.md §7).
+        Чужие каналы, из которых берётся контент. При добавлении система находит канал
+        по @username и подписывает на него выбранный аккаунт-читалку — иначе новые посты
+        оттуда не приходят.
       </p>
       <Callout>
         Новый источник начинает читаться в реальном времени только после перезапуска
@@ -212,21 +306,7 @@ export function SourceChannels() {
         {data && data.length > 0 && (
           <ul className="flex flex-col divide-y divide-border">
             {data.map((channel) => (
-              <li key={channel.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate font-medium text-ink">{channel.title}</p>
-                    <TrustScoreBadge value={channel.trust_score} />
-                  </div>
-                  <p className="truncate text-xs text-ink-muted">
-                    {channel.tg_username ? `@${channel.tg_username}` : channel.tg_chat_id ?? "—"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <AssignSessionCell channel={channel} />
-                  <AssignThemeCell channel={channel} />
-                </div>
-              </li>
+              <SourceRow key={channel.id} channel={channel} />
             ))}
           </ul>
         )}

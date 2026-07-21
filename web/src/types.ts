@@ -17,6 +17,8 @@ export interface SourceChannel {
   ingest_session_id: string | null;
   is_active: boolean;
   trust_score: number;
+  last_scanned_at: string | null;
+  candidate_count: number;
 }
 
 export interface TargetChannel {
@@ -147,6 +149,18 @@ export interface DashboardStats {
   pool_posts_ready: number;
   top_sources: TopSource[];
   workers: WorkerStatus[];
+}
+
+export interface OnboardingStep {
+  key: string;
+  label: string;
+  done: boolean;
+  href: string;
+}
+
+export interface Onboarding {
+  all_done: boolean;
+  steps: OnboardingStep[];
 }
 
 export type AlertSeverity = "warning" | "info";

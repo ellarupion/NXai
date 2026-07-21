@@ -17,7 +17,12 @@ from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
 from core.services.effective_settings import get_effective_settings
 from core.services.force_generate import ForceGenerateError, ForceGenerateService
-from core.services.review import ReviewError, approve_candidate, reject_candidate
+from core.services.review import (
+    ReviewError,
+    approve_candidate,
+    edit_candidate_text,
+    reject_candidate,
+)
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
@@ -94,6 +99,21 @@ async def list_pending_review(
         )
         for candidate, source_channel, post_version in result.all()
     ]
+
+
+class EditTextRequest(BaseModel):
+    text: str
+
+
+@router.put("/{candidate_id}/text", status_code=204)
+async def edit_text(
+    candidate_id: UUID, payload: EditTextRequest, session: AsyncSession = Depends(get_db)
+) -> None:
+    try:
+        await edit_candidate_text(session, candidate_id, payload.text)
+    except ReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await session.commit()
 
 
 @router.post("/{candidate_id}/approve", status_code=204)

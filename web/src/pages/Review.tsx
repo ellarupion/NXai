@@ -10,6 +10,7 @@ import {
   Input,
   LoadingState,
   Select,
+  Textarea,
 } from "../components/ui";
 import type { GeneratedPost, PendingReviewPost } from "../types";
 
@@ -67,9 +68,11 @@ function GenerateForm() {
           onChange={(e) => setCount(Number(e.target.value))}
           className="w-24"
         />
-        <Button type="submit" disabled={generate.isPending || !themeId}>
-          {generate.isPending ? "Генерирую…" : "Сделать посты"}
-        </Button>
+        <span title={!themeId ? "Сначала выберите тему" : undefined}>
+          <Button type="submit" disabled={generate.isPending || !themeId}>
+            {generate.isPending ? "Генерирую…" : "Сделать посты"}
+          </Button>
+        </span>
       </form>
       {error && <p className="mt-2 text-sm text-bad">{error}</p>}
       {lastGenerated && (
@@ -85,6 +88,8 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(post.rewritten_text);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["pending-review"] });
 
@@ -106,7 +111,17 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось отклонить"),
   });
 
-  const busy = approve.isPending || reject.isPending;
+  const saveEdit = useMutation({
+    mutationFn: () => api.put(`/candidates/${post.candidate_id}/text`, { text: draft }),
+    onSuccess: () => {
+      setError(null);
+      setEditing(false);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось сохранить правку"),
+  });
+
+  const busy = approve.isPending || reject.isPending || saveEdit.isPending;
 
   return (
     <Card className="flex flex-col gap-3">
@@ -119,29 +134,70 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
         )}
       </div>
 
-      <p className="whitespace-pre-wrap text-sm text-ink">{post.rewritten_text}</p>
+      {editing ? (
+        <>
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={8}
+            className="text-sm"
+          />
+          <div className="flex gap-2">
+            <Button onClick={() => saveEdit.mutate()} disabled={busy || !draft.trim()}>
+              Сохранить
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setDraft(post.rewritten_text);
+                setEditing(false);
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              Отмена
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap text-sm text-ink">{post.rewritten_text}</p>
 
-      <button
-        type="button"
-        onClick={() => setShowRaw((v) => !v)}
-        className="self-start text-xs text-ink-muted underline decoration-dotted hover:text-ink"
-      >
-        {showRaw ? "Скрыть оригинал" : "Показать оригинал"}
-      </button>
-      {showRaw && (
-        <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs text-ink-muted">
-          {post.raw_text}
-        </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowRaw((v) => !v)}
+              className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+            >
+              {showRaw ? "Скрыть оригинал" : "Показать оригинал"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(post.rewritten_text);
+                setEditing(true);
+              }}
+              className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+            >
+              Редактировать
+            </button>
+          </div>
+          {showRaw && (
+            <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs text-ink-muted">
+              {post.raw_text}
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <Button onClick={() => approve.mutate()} disabled={busy}>
+              Одобрить
+            </Button>
+            <Button variant="danger" onClick={() => reject.mutate()} disabled={busy}>
+              Отклонить
+            </Button>
+          </div>
+        </>
       )}
-
-      <div className="flex gap-2">
-        <Button onClick={() => approve.mutate()} disabled={busy}>
-          Одобрить
-        </Button>
-        <Button variant="danger" onClick={() => reject.mutate()} disabled={busy}>
-          Отклонить
-        </Button>
-      </div>
       {error && <p className="text-xs text-bad">{error}</p>}
     </Card>
   );

@@ -8,10 +8,12 @@ ARCHITECTURE.md §5) — approve НЕ публикует напрямую, то�
 
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
+from core.models.post_version import PostVersion
 from core.services.trust_score import REJECTED_PENALTY, adjust_trust_score
 
 
@@ -38,6 +40,40 @@ async def approve_candidate(session: AsyncSession, candidate_id: UUID) -> Candid
     candidate.status = CandidatePostStatus.REWRITTEN
     await session.flush()
     return candidate
+
+
+async def edit_candidate_text(
+    session: AsyncSession, candidate_id: UUID, new_text: str
+) -> PostVersion:
+    """Правка текста рерайта перед одобрением (аудит, п.4.1). Не переписываем
+    существующую версию на месте, а создаём НОВУЮ PostVersion с
+    инкрементированным variant_no и наводим на неё selected_post_version_id —
+    так сохраняется исходный LLM-вариант (для сравнения/аудита), а source_
+    similarity у ручной правки не считаем (её смысл — анти-плагиат
+    LLM-генерации, к ручному тексту неприменим)."""
+    new_text = new_text.strip()
+    if not new_text:
+        raise ReviewError("Текст поста не может быть пустым")
+
+    candidate = await _get_pending_candidate(session, candidate_id)
+
+    existing_versions = await session.scalar(
+        select(func.count()).select_from(PostVersion).where(
+            PostVersion.candidate_post_id == candidate.id
+        )
+    )
+    version = PostVersion(
+        candidate_post_id=candidate.id,
+        variant_no=(existing_versions or 0) + 1,
+        rewritten_text=new_text,
+        persona_prompt_used="",
+        source_similarity=None,
+    )
+    session.add(version)
+    await session.flush()
+    candidate.selected_post_version_id = version.id
+    await session.flush()
+    return version
 
 
 async def reject_candidate(session: AsyncSession, candidate_id: UUID) -> CandidatePost:

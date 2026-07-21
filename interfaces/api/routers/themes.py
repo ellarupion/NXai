@@ -1,6 +1,6 @@
-"""CRUD тем — минимальный набор для Phase 0. Полный набор (привязка
-target_channel/channel_bot к теме через панель, а не миграцией/скриптом,
-редактирование style_prompt/cadence) — ROADMAP.md Phase 1/3."""
+"""CRUD тем — создание, список, получение и редактирование (переименование,
+правка стиля по умолчанию, включение/выключение). Привязка target_channel/
+channel_bot к теме делается на своих страницах панели."""
 
 from uuid import UUID
 
@@ -30,6 +30,14 @@ class ThemeCreate(BaseModel):
     default_style_prompt: str = ""
 
 
+class ThemeUpdate(BaseModel):
+    """Все поля опциональны — PUT меняет только переданное."""
+
+    name: str | None = None
+    default_style_prompt: str | None = None
+    is_active: bool | None = None
+
+
 @router.get("", response_model=list[ThemeOut])
 async def list_themes(session: AsyncSession = Depends(get_db)) -> list[Theme]:
     result = await session.execute(select(Theme).order_by(Theme.name))
@@ -50,4 +58,27 @@ async def get_theme(theme_id: UUID, session: AsyncSession = Depends(get_db)) -> 
     theme = await session.get(Theme, theme_id)
     if theme is None:
         raise HTTPException(status_code=404, detail="Theme not found")
+    return theme
+
+
+@router.put("/{theme_id}", response_model=ThemeOut)
+async def update_theme(
+    theme_id: UUID, payload: ThemeUpdate, session: AsyncSession = Depends(get_db)
+) -> Theme:
+    theme = await session.get(Theme, theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="Theme not found")
+
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Название темы не может быть пустым")
+        theme.name = name
+    if payload.default_style_prompt is not None:
+        theme.default_style_prompt = payload.default_style_prompt
+    if payload.is_active is not None:
+        theme.is_active = payload.is_active
+
+    await session.flush()
+    await session.commit()
     return theme

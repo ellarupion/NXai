@@ -1,8 +1,43 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { alertsQuery, dashboardStatsQuery } from "../api/queries";
+import { alertsQuery, dashboardStatsQuery, onboardingQuery } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
+import { plural } from "../lib/plural";
 import type { Alert, WorkerStatus } from "../types";
+
+function OnboardingCard() {
+  const { data } = useQuery(onboardingQuery());
+  if (!data || data.all_done) return null;
+
+  return (
+    <Card className="border-accent/40">
+      <h2 className="mb-1 text-sm font-semibold text-ink">С чего начать</h2>
+      <p className="mb-3 text-xs text-ink-muted">
+        Чтобы система заработала, пройдите эти шаги по порядку.
+      </p>
+      <ol className="flex flex-col gap-2">
+        {data.steps.map((step, i) => (
+          <li key={step.key} className="flex items-center gap-3">
+            <span
+              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                step.done ? "bg-good-soft text-good" : "bg-surface-2 text-ink-muted"
+              }`}
+            >
+              {step.done ? "✓" : i + 1}
+            </span>
+            {step.done ? (
+              <span className="text-sm text-ink-muted line-through">{step.label}</span>
+            ) : (
+              <Link to={step.href} className="text-sm text-accent underline underline-offset-2">
+                {step.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
 
 function WorkersCard({ workers }: { workers: WorkerStatus[] }) {
   return (
@@ -91,11 +126,12 @@ export function Dashboard() {
       <div>
         <h1 className="text-xl font-semibold text-ink">Дашборд</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Живая статистика пайплайна. Вовлечённость публикаций (просмотры/пересылки
-          в динамике) пока не собирается — нужна выделенная Telethon-сессия в целевых
-          каналах (см. ROADMAP.md Phase 5).
+          Живая статистика работы системы: сколько тем и источников заведено, что на
+          разных стадиях обработки, сколько опубликовано.
         </p>
       </div>
+
+      <OnboardingCard />
 
       <AlertsSection />
 
@@ -113,8 +149,8 @@ export function Dashboard() {
       {data.pending_review_count > 0 && (
         <Card className="border-accent/40">
           <p className="text-sm text-ink">
-            <span className="font-semibold">{data.pending_review_count}</span> пост(ов) ждут
-            одобрения —{" "}
+            <span className="font-semibold">{data.pending_review_count}</span>{" "}
+            {plural(data.pending_review_count, "пост ждёт", "поста ждут", "постов ждут")} одобрения —{" "}
             <Link to="/review" className="text-accent underline underline-offset-2">
               перейти к проверке
             </Link>
@@ -127,7 +163,8 @@ export function Dashboard() {
         <Card className="border-accent/40">
           <p className="text-sm text-ink">
             Есть <span className="font-semibold">{data.source_channels_unassigned}</span>{" "}
-            источник(ов) без темы —{" "}
+            {plural(data.source_channels_unassigned, "источник", "источника", "источников")} без
+            темы —{" "}
             <Link to="/source-channels" className="text-accent underline underline-offset-2">
               распределите их
             </Link>{" "}

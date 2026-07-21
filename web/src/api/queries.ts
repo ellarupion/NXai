@@ -5,6 +5,7 @@ import type {
   DashboardStats,
   GeneralSettings,
   Me,
+  Onboarding,
   PendingReviewPost,
   PoolPost,
   SettingsStatus,
@@ -74,4 +75,9 @@ export const dashboardStatsQuery = () => ({
 export const alertsQuery = () => ({
   queryKey: ["alerts"],
   queryFn: () => api.get<Alert[]>("/alerts"),
+});
+
+export const onboardingQuery = () => ({
+  queryKey: ["onboarding"],
+  queryFn: () => api.get<Onboarding>("/dashboard/onboarding"),
 });
