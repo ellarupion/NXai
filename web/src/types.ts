@@ -115,3 +115,22 @@ export interface PoolPost {
   status: PoolPostStatus;
   times_used: number;
 }
+
+export interface TopSource {
+  title: string;
+  candidate_count: number;
+}
+
+export interface DashboardStats {
+  themes_total: number;
+  themes_active: number;
+  source_channels_total: number;
+  source_channels_unassigned: number;
+  candidates_by_status: Record<string, number>;
+  pending_review_count: number;
+  publications_total: number;
+  publications_today: number;
+  pool_posts_total: number;
+  pool_posts_ready: number;
+  top_sources: TopSource[];
+}

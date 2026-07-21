@@ -1,43 +1,79 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { sourceChannelsQuery, themesQuery } from "../api/queries";
+import { dashboardStatsQuery } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
 
+const STATUS_LABELS: Record<string, string> = {
+  new: "Новые",
+  scoring: "Дозревают",
+  selected: "Отобраны",
+  rewritten: "Готовы к паблишу",
+  pending_review: "На одобрении",
+  queued: "В очереди",
+  published: "Опубликованы",
+  rejected: "Отклонены",
+  duplicate: "Дубли",
+};
+
+const STATUS_ORDER = [
+  "new",
+  "scoring",
+  "selected",
+  "rewritten",
+  "pending_review",
+  "queued",
+  "published",
+  "rejected",
+  "duplicate",
+];
+
 export function Dashboard() {
-  const themes = useQuery(themesQuery());
-  const sourceChannels = useQuery(sourceChannelsQuery(false));
+  const { data, isLoading, error } = useQuery(dashboardStatsQuery());
 
-  if (themes.isLoading || sourceChannels.isLoading) return <LoadingState />;
-  if (themes.error) return <ErrorState message={themes.error.message} />;
-  if (sourceChannels.error) return <ErrorState message={sourceChannels.error.message} />;
-
-  const activeThemes = themes.data?.filter((t) => t.is_active).length ?? 0;
-  const totalChannels = sourceChannels.data?.length ?? 0;
-  const unassigned = sourceChannels.data?.filter((c) => c.theme_id === null).length ?? 0;
+  if (isLoading) return <LoadingState />;
+  if (error) return <ErrorState message={error.message} />;
+  if (!data) return null;
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold text-ink">Дашборд</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Phase 0/1 — панель показывает только то, что реально считает бэкенд:
-          темы и источники. Пул кандидатов, боты и статистика появятся по мере
-          наполнения (см. ROADMAP.md).
+          Живая статистика пайплайна. Вовлечённость публикаций (просмотры/пересылки
+          в динамике) пока не собирается — нужна выделенная Telethon-сессия в целевых
+          каналах (см. ROADMAP.md Phase 5).
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <StatTile label="Тем всего" value={themes.data?.length ?? 0} />
-        <StatTile label="Активных тем" value={activeThemes} />
-        <StatTile label="Источников всего" value={totalChannels} />
-        <StatTile label="Без темы" value={unassigned} />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatTile label="Тем всего" value={data.themes_total} />
+        <StatTile label="Активных тем" value={data.themes_active} />
+        <StatTile label="Источников всего" value={data.source_channels_total} />
+        <StatTile label="Источников без темы" value={data.source_channels_unassigned} />
+        <StatTile label="Публикаций всего" value={data.publications_total} />
+        <StatTile label="Публикаций сегодня" value={data.publications_today} />
+        <StatTile label="Пул: всего" value={data.pool_posts_total} />
+        <StatTile label="Пул: готово" value={data.pool_posts_ready} />
       </div>
 
-      {unassigned > 0 && (
+      {data.pending_review_count > 0 && (
         <Card className="border-accent/40">
           <p className="text-sm text-ink">
-            Есть <span className="font-semibold">{unassigned}</span> источник(ов) без
-            темы —{" "}
+            <span className="font-semibold">{data.pending_review_count}</span> пост(ов) ждут
+            одобрения —{" "}
+            <Link to="/review" className="text-accent underline underline-offset-2">
+              перейти к проверке
+            </Link>
+            .
+          </p>
+        </Card>
+      )}
+
+      {data.source_channels_unassigned > 0 && (
+        <Card className="border-accent/40">
+          <p className="text-sm text-ink">
+            Есть <span className="font-semibold">{data.source_channels_unassigned}</span>{" "}
+            источник(ов) без темы —{" "}
             <Link to="/source-channels" className="text-accent underline underline-offset-2">
               распределите их
             </Link>{" "}
@@ -45,6 +81,38 @@ export function Dashboard() {
           </p>
         </Card>
       )}
+
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Кандидаты по стадиям пайплайна</h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+          {STATUS_ORDER.map((status) => (
+            <StatTile
+              key={status}
+              label={STATUS_LABELS[status] ?? status}
+              value={data.candidates_by_status[status] ?? 0}
+            />
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Топ-5 источников по числу кандидатов</h2>
+        {data.top_sources.length === 0 && (
+          <p className="text-sm text-ink-muted">Пока нет ни одного кандидата ни от одного источника.</p>
+        )}
+        {data.top_sources.length > 0 && (
+          <ul className="flex flex-col divide-y divide-border">
+            {data.top_sources.map((source) => (
+              <li key={source.title} className="flex items-center justify-between py-2">
+                <span className="truncate text-sm text-ink">{source.title}</span>
+                <span className="font-mono text-sm tabular-nums text-ink-muted">
+                  {source.candidate_count}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }

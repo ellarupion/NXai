@@ -1,6 +1,7 @@
 import { api } from "./client";
 import type {
   ChannelBot,
+  DashboardStats,
   Me,
   PendingReviewPost,
   PoolPost,
@@ -56,4 +57,9 @@ export const pendingReviewQuery = (themeId?: string) => ({
 export const poolPostsQuery = (themeId?: string) => ({
   queryKey: ["pool-posts", { themeId }],
   queryFn: () => api.get<PoolPost[]>(`/pool-posts${themeId ? `?theme_id=${themeId}` : ""}`),
+});
+
+export const dashboardStatsQuery = () => ({
+  queryKey: ["dashboard-stats"],
+  queryFn: () => api.get<DashboardStats>("/dashboard/stats"),
 });
