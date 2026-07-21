@@ -80,6 +80,9 @@ class ForceGenerateService:
         rewrite = RewriteService(self.session, self.llm, self.embeddings)
 
         results: list[GeneratedPost] = []
+        last_error: str | None = None
+        duplicates_found = 0
+
         for candidate in candidates:
             if len(results) >= count:
                 break
@@ -92,14 +95,23 @@ class ForceGenerateService:
             candidate.status = CandidatePostStatus.SELECTED
             await self.session.flush()
 
-            duplicate_of = await dedup.resolve_duplicates(candidate.id, theme_id)
-            if duplicate_of is not None:
-                continue
-
             try:
+                duplicate_of = await dedup.resolve_duplicates(candidate.id, theme_id)
+                if duplicate_of is not None:
+                    duplicates_found += 1
+                    continue
                 post_version = await rewrite.generate(candidate.id, persona_prompt)
-            except Exception:
-                logger.exception("force_generate.rewrite_failed", candidate_id=str(candidate.id))
+            except Exception as exc:
+                # Не оставляем кандидата застрявшим в SELECTED — частая причина
+                # здесь системная (невалидный/неоплаченный ключ LLM/эмбеддингов),
+                # а не разовый сбой конкретного поста, так что все следующие
+                # кандидаты в этом же вызове почти наверняка упадут тем же
+                # образом; возвращаем в очередь, чтобы повторный вызов "Сделать
+                # посты" после исправления ключа в Настройках подхватил его снова.
+                logger.exception("force_generate.candidate_failed", candidate_id=str(candidate.id))
+                candidate.status = CandidatePostStatus.NEW
+                await self.session.flush()
+                last_error = str(exc)
                 continue
 
             candidate.status = CandidatePostStatus.PENDING_REVIEW
@@ -117,6 +129,18 @@ class ForceGenerateService:
 
         await self.session.commit()
         logger.info("force_generate.done", theme_id=str(theme_id), generated=len(results))
+
+        if not results:
+            if last_error:
+                raise ForceGenerateError(
+                    f"Не удалось сгенерировать ни одного поста — ошибка: {last_error}. "
+                    "Проверьте ключи LLM/эмбеддингов в разделе «Настройки»."
+                )
+            if duplicates_found:
+                raise ForceGenerateError(
+                    "Все найденные посты оказались повторами уже обработанных — новых уникальных нет"
+                )
+
         return results
 
     async def _active_source_channels(self, theme_id: UUID) -> list[SourceChannel]:
