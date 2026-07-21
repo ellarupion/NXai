@@ -55,8 +55,21 @@ class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("candidate_posts.id", ondelete="SET NULL"), nullable=True
     )
+    # use_alter=True: candidate_posts <-> post_versions ссылаются друг на друга
+    # (post_versions.candidate_post_id -> candidate_posts.id), поэтому в одной
+    # общей миграции ни одну из двух таблиц нельзя создать первой со всеми её
+    # FK инлайн — Postgres откажет "relation does not exist" на второй таблице.
+    # use_alter просит SQLAlchemy/Alembic вынести именно этот FK в отдельный
+    # ALTER TABLE ... ADD CONSTRAINT после того, как обе таблицы уже созданы.
     selected_post_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("post_versions.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True),
+        ForeignKey(
+            "post_versions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_candidate_posts_selected_post_version_id",
+        ),
+        nullable=True,
     )
 
     source_channel: Mapped["SourceChannel"] = relationship(back_populates="candidate_posts")
