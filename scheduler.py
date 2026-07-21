@@ -26,6 +26,7 @@ from core.models.target_channel import TargetChannel
 from core.models.telethon_session import TelethonSession
 from core.services.ad_watchdog import cover_if_due
 from core.services.dedup import DedupService
+from core.services.effective_settings import get_effective_settings
 from core.services.publisher import PublisherService
 from core.services.rewrite import RewriteService
 from core.services.scheduler_pool import SchedulerPoolService, is_due
@@ -98,13 +99,16 @@ async def dedup_and_rewrite_job() -> None:
     """SELECTED-кандидаты: сначала дедуп внутри темы (дёшево), потом рерайт
     LLM только для тех, кто не свернулся в дубликат (дорого) — порядок
     важен для стоимости, см. ARCHITECTURE.md §5/§7."""
-    settings = get_settings()
-    llm = LLMClient(settings)
-    embeddings = EmbeddingsClient(settings)
-
     session_factory = get_session_factory()
     rewritten = 0
     async with session_factory() as session:
+        # Ключи берутся per-tick (не в module-level get_settings()), чтобы
+        # смена оверрайда в панели подхватывалась без рестарта scheduler'а
+        # (core/services/effective_settings.py — DB-оверрайд поверх .env).
+        settings = await get_effective_settings(session)
+        llm = LLMClient(settings)
+        embeddings = EmbeddingsClient(settings)
+
         result = await session.execute(
             select(CandidatePost, SourceChannel)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)

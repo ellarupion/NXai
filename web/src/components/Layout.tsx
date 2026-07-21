@@ -7,6 +7,8 @@ const NAV_ITEMS = [
   { to: "/", label: "Дашборд", end: true },
   { to: "/themes", label: "Темы" },
   { to: "/source-channels", label: "Источники" },
+  { to: "/bots", label: "Боты" },
+  { to: "/settings", label: "Настройки" },
 ];
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {

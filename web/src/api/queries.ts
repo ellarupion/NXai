@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { Me, SourceChannel, Theme } from "../types";
+import type { ChannelBot, Me, SettingsStatus, SourceChannel, Theme } from "../types";
 
 export const meQuery = () => ({
   queryKey: ["me"],
@@ -15,4 +15,14 @@ export const sourceChannelsQuery = (unassignedOnly: boolean) => ({
   queryKey: ["source-channels", { unassignedOnly }],
   queryFn: () =>
     api.get<SourceChannel[]>(`/source-channels${unassignedOnly ? "?unassigned_only=true" : ""}`),
+});
+
+export const channelBotsQuery = () => ({
+  queryKey: ["channel-bots"],
+  queryFn: () => api.get<ChannelBot[]>("/channel-bots"),
+});
+
+export const settingsQuery = () => ({
+  queryKey: ["settings"],
+  queryFn: () => api.get<SettingsStatus>("/settings"),
 });

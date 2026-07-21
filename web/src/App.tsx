@@ -11,6 +11,8 @@ const Themes = lazy(() => import("./pages/Themes").then((m) => ({ default: m.The
 const SourceChannels = lazy(() =>
   import("./pages/SourceChannels").then((m) => ({ default: m.SourceChannels })),
 );
+const Bots = lazy(() => import("./pages/Bots").then((m) => ({ default: m.Bots })));
+const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -35,6 +37,8 @@ function AppRoutes() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/themes" element={<Themes />} />
           <Route path="/source-channels" element={<SourceChannels />} />
+          <Route path="/bots" element={<Bots />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
