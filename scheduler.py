@@ -62,6 +62,11 @@ async def score_refresh_job() -> None:
         if not due:
             return
 
+        # Telegram api_id/api_hash тоже берутся per-tick (см. dedup_and_rewrite_job
+        # ниже) — оверрайд из панели (core/services/effective_settings.py)
+        # подхватывается без рестарта scheduler'а.
+        settings = await get_effective_settings(session)
+
         stats_clients: dict[str, SourceStatsClient] = {}
         try:
             for candidate in due:
@@ -74,7 +79,7 @@ async def score_refresh_job() -> None:
                     telethon_session = await session.get(TelethonSession, source_channel.ingest_session_id)
                     if telethon_session is None:
                         continue
-                    client = SourceStatsClient(telethon_session.session_string)
+                    client = SourceStatsClient(telethon_session.session_string, settings)
                     await client.connect()
                     stats_clients[session_id] = client
 

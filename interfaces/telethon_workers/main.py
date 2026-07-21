@@ -17,11 +17,12 @@ from sqlalchemy import select
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 
-from core.config import get_settings
+from core.config import Settings, get_settings
 from core.db import get_session_factory
 from core.logging import configure_logging, get_logger
 from core.models.source_channel import SourceChannel
 from core.models.telethon_session import TelethonSession
+from core.services.effective_settings import get_effective_settings
 from core.services.ingest_candidates import IncomingCandidate, IngestCandidatesService
 
 logger = get_logger(__name__)
@@ -40,8 +41,7 @@ async def _source_chat_ids_for(session_id) -> list[int]:
         return [row[0] for row in result.all()]
 
 
-async def run_session_worker(telethon_session: TelethonSession) -> None:
-    settings = get_settings()
+async def run_session_worker(telethon_session: TelethonSession, settings: Settings) -> None:
     source_chat_ids = await _source_chat_ids_for(telethon_session.id)
     if not source_chat_ids:
         logger.warning("telethon_worker.no_channels_assigned", session_label=telethon_session.label)
@@ -81,6 +81,10 @@ async def main() -> None:
 
     session_factory = get_session_factory()
     async with session_factory() as session:
+        # Один раз при старте процесса (не per-tick, в отличие от scheduler.py) —
+        # long-polling воркер и так требует рестарта, чтобы подхватить новый
+        # оверрайд из панели, поэтому фиксируем settings на весь run.
+        effective_settings = await get_effective_settings(session)
         result = await session.execute(select(TelethonSession).where(TelethonSession.is_active.is_(True)))
         telethon_sessions = list(result.scalars().all())
 
@@ -88,7 +92,7 @@ async def main() -> None:
         logger.warning("telethon_worker.no_active_sessions")
         return
 
-    await asyncio.gather(*(run_session_worker(ts) for ts in telethon_sessions))
+    await asyncio.gather(*(run_session_worker(ts, effective_settings) for ts in telethon_sessions))
 
 
 if __name__ == "__main__":

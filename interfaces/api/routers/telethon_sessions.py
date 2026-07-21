@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.telethon_session import TelethonSession
+from core.services.effective_settings import get_effective_settings
 from core.services.telethon_login import (
     PasswordRequiredError,
     TelethonLoginError,
@@ -98,9 +99,12 @@ async def delete_telethon_session(telethon_session_id: UUID, session: AsyncSessi
 
 
 @router.post("/login/start", response_model=LoginStartOut)
-async def start_login_endpoint(payload: LoginStartPayload) -> LoginStartOut:
+async def start_login_endpoint(
+    payload: LoginStartPayload, session: AsyncSession = Depends(get_db)
+) -> LoginStartOut:
+    settings = await get_effective_settings(session)
     try:
-        attempt_id = await start_login(payload.phone_number, payload.label)
+        attempt_id = await start_login(payload.phone_number, payload.label, settings)
     except TelethonLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return LoginStartOut(attempt_id=attempt_id)
@@ -110,8 +114,9 @@ async def start_login_endpoint(payload: LoginStartPayload) -> LoginStartOut:
 async def submit_code_endpoint(
     payload: LoginCodePayload, session: AsyncSession = Depends(get_db)
 ) -> LoginStepOut:
+    settings = await get_effective_settings(session)
     try:
-        result = await submit_code(payload.attempt_id, payload.code)
+        result = await submit_code(payload.attempt_id, payload.code, settings)
     except PasswordRequiredError:
         return LoginStepOut(status="password_required")
     except TelethonLoginError as exc:
@@ -128,8 +133,9 @@ async def submit_code_endpoint(
 async def submit_password_endpoint(
     payload: LoginPasswordPayload, session: AsyncSession = Depends(get_db)
 ) -> LoginStepOut:
+    settings = await get_effective_settings(session)
     try:
-        result = await submit_password(payload.attempt_id, payload.password)
+        result = await submit_password(payload.attempt_id, payload.password, settings)
     except TelethonLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

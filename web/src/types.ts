@@ -55,6 +55,8 @@ export interface SecretStatus {
 export interface SettingsStatus {
   anthropic_api_key: SecretStatus;
   voyage_api_key: SecretStatus;
+  telegram_api_id: SecretStatus;
+  telegram_api_hash: SecretStatus;
 }
 
 export interface TelethonSession {

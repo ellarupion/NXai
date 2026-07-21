@@ -100,8 +100,8 @@ async def start_login(phone_number: str, label: str, settings: Settings | None =
     """Отправляет код входа на phone_number, возвращает attempt_id для submit_code()."""
     settings = settings or get_settings()
     client = _client_for(None, settings)
-    await client.connect()
     try:
+        await client.connect()
         sent = await client.send_code_request(phone_number)
     except Exception as exc:
         await client.disconnect()
@@ -129,8 +129,8 @@ async def submit_code(attempt_id: str, code: str, settings: Settings | None = No
     state = await _load_state(attempt_id, settings)
 
     client = _client_for(state.session_string, settings)
-    await client.connect()
     try:
+        await client.connect()
         await client.sign_in(phone=state.phone_number, code=code, phone_code_hash=state.phone_code_hash)
     except SessionPasswordNeededError:
         state.session_string = client.session.save()
@@ -154,8 +154,8 @@ async def submit_password(attempt_id: str, password: str, settings: Settings | N
     state = await _load_state(attempt_id, settings)
 
     client = _client_for(state.session_string, settings)
-    await client.connect()
     try:
+        await client.connect()
         await client.sign_in(password=password)
     except Exception as exc:
         await client.disconnect()

@@ -24,9 +24,11 @@ async def update_secret_overrides(
     *,
     anthropic_api_key: str | None = None,
     voyage_api_key: str | None = None,
+    telegram_api_id: int | None = None,
+    telegram_api_hash: str | None = None,
 ) -> PanelSettings:
-    """`None` — оставить как есть, `""` — сбросить оверрайд (вернуться к
-    .env-значению), непустая строка — новый оверрайд. Отличать "не трогать"
+    """`None` — оставить как есть, `""`/`0` — сбросить оверрайд (вернуться к
+    .env-значению), непустое значение — новый оверрайд. Отличать "не трогать"
     от "сбросить" важно: иначе не было бы способа откатиться на .env-ключ
     из панели, если DB-оверрайд оказался невалидным."""
     settings_row = await get_or_create_panel_settings(session)
@@ -34,5 +36,9 @@ async def update_secret_overrides(
         settings_row.anthropic_api_key_override = anthropic_api_key
     if voyage_api_key is not None:
         settings_row.voyage_api_key_override = voyage_api_key
+    if telegram_api_id is not None:
+        settings_row.telegram_api_id_override = telegram_api_id
+    if telegram_api_hash is not None:
+        settings_row.telegram_api_hash_override = telegram_api_hash
     await session.flush()
     return settings_row
