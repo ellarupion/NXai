@@ -1,16 +1,13 @@
 # Прод-стек — самостоятельный файл, а не override поверх docker-compose.yml
-# (тот же resaon, что в NX: override'ы Compose склеивают list-поля вроде
-# ports, и порты БД/Redis из dev-файла продолжили бы публиковаться наружу).
+# (override'ы Compose склеивают list-поля вроде ports, и порты БД/Redis из
+# dev-файла продолжили бы публиковаться наружу даже после "прод"-переопределения).
 #
-# nginx/TLS здесь нет — на одном VPS рядом с другим проектом (см. DEPLOY.md
-# "Несколько проектов на одном VPS") TLS-терминацию и роутинг по домену берёт
-# на себя ОДИН общий nginx (например, уже существующий у соседнего проекта),
-# а `api` подключается к нему через внешнюю docker-сеть `edge`, не публикуя
-# порт наружу. React-панель для NXai ещё не собрана (ROADMAP.md Phase 1+) —
-# до этого через ai.<домен> доступен только сам API.
+# Отдельный VPS только под NXai — свой nginx+certbot, без совместного входа с
+# другим проектом (см. DEPLOY.md; более ранняя версия этого файла была под
+# сценарий "на одном VPS с другим проектом", тот вариант остался в истории git,
+# если понадобится снова).
 #
 # Запуск: docker compose -f docker-compose.prod.yml --env-file .env up -d --build
-# Сеть edge должна существовать до первого запуска: docker network create edge
 
 services:
   postgres:
@@ -69,7 +66,6 @@ services:
 
   api:
     build: .
-    container_name: nxai-api
     env_file: .env
     depends_on:
       migrate:
@@ -77,12 +73,6 @@ services:
       redis:
         condition: service_healthy
     command: ["uvicorn", "interfaces.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    # Порт наружу НЕ публикуется — общий nginx (см. DEPLOY.md) достаёт до
-    # контейнера по имени nxai-api через сеть edge. Для отладки без домена
-    # можно временно раскомментировать "127.0.0.1:8000:8000" (не 0.0.0.0!).
-    networks:
-      - default
-      - edge
     restart: unless-stopped
 
   scheduler:
@@ -94,10 +84,49 @@ services:
     command: ["python", "scheduler.py"]
     restart: unless-stopped
 
-networks:
-  default:
-  edge:
-    external: true
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Сертификат кладётся сюда вручную/через certs-sync (см. DEPLOY.md) —
+      # nginx.conf ссылается на фиксированные fullchain.pem/privkey.pem
+      # независимо от домена.
+      - ./certs:/etc/nginx/certs:ro
+      - certbot_webroot:/var/www/certbot:ro
+    restart: unless-stopped
+
+  # Не часть обычного `up` (profile tools) — разовая/периодическая задача, не
+  # долгоживущий сервис. Запуск: см. DEPLOY.md.
+  #   docker compose -f docker-compose.prod.yml --profile tools run --rm certbot certonly ...
+  #   docker compose -f docker-compose.prod.yml --profile tools run --rm certbot renew ...
+  certbot:
+    image: certbot/certbot
+    profiles: ["tools"]
+    volumes:
+      - certbot_letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: certbot
+
+  # Переносит fullchain.pem/privkey.pem из тома certbot'а в ./certs (откуда их
+  # реально читает nginx, см. deploy/nginx/nginx.conf) — нужен домен через
+  # -e DOMAIN=..., см. DEPLOY.md.
+  certs-sync:
+    image: alpine
+    profiles: ["tools"]
+    volumes:
+      - certbot_letsencrypt:/etc/letsencrypt:ro
+      - ./certs:/out
+    entrypoint: sh
+    command:
+      - -c
+      - cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /etc/letsencrypt/live/$$DOMAIN/privkey.pem /out/
 
 volumes:
   postgres_data:
+  certbot_webroot:
+  certbot_letsencrypt:

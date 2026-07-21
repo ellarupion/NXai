@@ -8,8 +8,8 @@
 админ-бот собирает уведомления и статистику со всех тематических ботов.
 
 Архитектура и план работ: см. [`ARCHITECTURE.md`](./ARCHITECTURE.md) и
-[`ROADMAP.md`](./ROADMAP.md). Деплой на VPS рядом с другим проектом (общий
-nginx, Cloudflare) — [`DEPLOY.md`](./DEPLOY.md).
+[`ROADMAP.md`](./ROADMAP.md). Деплой на отдельный VPS (свой nginx+certbot,
+Cloudflare) — [`DEPLOY.md`](./DEPLOY.md).
 
 Проект — идейный родственник [NX](https://github.com/ellarupion/NX)
 (панель редакции черновиков), часть инфраструктурного кода (`core/config`,
@@ -19,9 +19,13 @@ nginx, Cloudflare) — [`DEPLOY.md`](./DEPLOY.md).
 ## Статус
 
 Phase 0 — скелет проекта: ядро (config/db/llm/embeddings), полная схема
-данных, docker-compose, заготовки сервисов и интерфейсов с чёткими TODO.
-Бизнес-логика ingestion/scoring/rewrite/scheduling ещё не реализована —
-см. `ROADMAP.md` для порядка работ.
+данных, docker-compose, JWT-авторизация панели, заготовки сервисов и
+интерфейсов. Миграция и весь путь `docker compose up` → `alembic upgrade
+head` → создание админа → `/health`/`/auth/login` проверены end-to-end на
+реальном Postgres+pgvector. Бизнес-логика ingestion/scoring/rewrite/
+scheduling реализована на урезанном объёме (см. `core/services/`) — полная
+оркестрация нескольких Telethon-сессий и React-панель ещё предстоят, см.
+`ROADMAP.md`.
 
 ## Стек
 

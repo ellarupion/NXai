@@ -1,152 +1,123 @@
-# Деплой: несколько проектов на одном VPS + Cloudflare
+# Деплой (отдельный VPS)
 
-Сценарий: один VPS (Kamatera), домен `nxauto.org` на Cloudflare, на нём уже
-живёт NX на `i.nxauto.org`, и рядом нужно поднять NXai на `ai.nxauto.org`.
-Всё собирается прямо на сервере (`docker compose ... up --build`) — локальная
-сборка не нужна ни для NX (там она и так под Docker), ни для NXai.
+Один VPS только под NXai, домен на Cloudflare (`ai.nxauto.org` или любой
+другой — не хардкожен в конфиге, см. `deploy/nginx/nginx.conf`). Всё
+собирается прямо на сервере (`docker compose ... up --build`) — локальная
+сборка не нужна.
 
-Ключевая идея: порты 80/443 на хосте может держать только один процесс.
-Раз у NX уже есть свой `nginx`-контейнер с TLS — он и остаётся единственным
-входом на VPS, а NXai подключается к нему через общую docker-сеть, не
-поднимая свой nginx и не публикуя `api` наружу напрямую.
+Если вместо этого NXai живёт рядом с другим проектом на общем nginx —
+см. `git log -- DEPLOY.md docker-compose.prod.yml` на более раннюю версию
+этого файла (сценарий "несколько проектов на одном VPS"), она никуда не
+делась, просто это больше не текущий вариант.
 
-## 1. Один раз на VPS: общая сеть
+## 0. Предпосылки
 
-```bash
-docker network create edge
-```
+- Домен, указывающий A-записью на сервер (нужен для Let's Encrypt).
+- Открыты порты 80 и 443.
+- `.env` заполнен и **не закоммичен** — живёт только на диске сервера.
 
-Эта сеть — единственная точка соприкосновения проектов. NXai подключает к
-ней `api` (см. `docker-compose.prod.yml` — уже настроено в этом репозитории).
-Со стороны NX нужно один раз добавить ту же сеть существующему `nginx`-сервису
-в его `docker-compose.prod.yml` (репозиторий NX здесь не трогаем — правьте
-прямо на сервере или в своём чекауте NX):
-
-```yaml
-services:
-  nginx:
-    # ...остальное как было...
-    networks:
-      - default
-      - edge
-
-networks:
-  default:
-  edge:
-    external: true
-```
-
-После правки: `docker compose -f docker-compose.prod.yml up -d nginx`
-(пересоздаст только nginx, остальные сервисы NX не тронет).
-
-## 2. Cloudflare: DNS
-
-DNS → Add record:
-- Type: `A`
-- Name: `ai`
-- Content: `<IP вашего VPS>` (тот же, что у `i.nxauto.org`)
-- Proxy status: Proxied (оранжевое облако) — прячет IP VPS, DDoS-защита.
-
-## 3. Cloudflare: TLS — Origin Certificate (рекомендуется)
-
-Сейчас у NX, судя по всему, TLS через certbot/Let's Encrypt (HTTP-01,
-см. его DEPLOY.md) — рабочий вариант, но требует cron-обновления сертификата
-раз в ~60 дней. Раз домен уже на Cloudflare, проще один раз выпустить
-**Cloudflare Origin Certificate** (валиден 15 лет, Cloudflare доверяет ему
-по умолчанию) и полностью убрать certbot:
-
-1. Cloudflare → SSL/TLS → Origin Server → Create Certificate.
-2. Hostnames: `nxauto.org, *.nxauto.org` (покрывает и `i`, и `ai`, и будущие
-   поддомены), Key type RSA, срок 15 лет.
-3. Сохранить на VPS: `/etc/ssl/cloudflare/origin.pem` (сертификат) и
-   `/etc/ssl/cloudflare/origin.key` (приватный ключ), смонтировать
-   read-only в контейнер nginx (тот же volume-путь, что сейчас у
-   fullchain.pem/privkey.pem в NX — просто заменить содержимое).
-4. Cloudflare → SSL/TLS → Overview → режим **Full (strict)**.
-
-После этого certbot/certs-sync в NX можно не запускать вовсе — Origin Cert
-не обновляется годами и не требует HTTP-01 challenge.
-
-Если не хочется трогать уже работающий certbot-конфиг NX — второй вариант:
-выпустить обычный Let's Encrypt сертификат ещё и на `ai.nxauto.org` тем же
-certbot-контейнером (`certbot certonly --webroot -w /var/www/certbot -d
-ai.nxauto.org`) и подключить его в новом server-блоке ниже. Дольше в
-поддержке, зато без изменения текущей TLS-схемы.
-
-## 4. Разворачивание NXai на VPS
+## 1. Клонирование и .env
 
 ```bash
 cd /opt
 git clone https://github.com/ellarupion/NXai.git nxai
 cd nxai
 cp .env.example .env
-nano .env   # заполнить прямо на сервере: токены ботов, ANTHROPIC_API_KEY,
-            # VOYAGE_API_KEY, TELEGRAM_API_ID/HASH, API_SECRET_KEY (openssl rand -hex 32)
+```
+
+Дальше — **заполнить `.env` вручную через редактор** (`nano .env`), не
+собирать его heredoc'ом/`read`-подсказками из чата: любая многострочная
+вставка в терминал (особенно с мобильного SSH-клиента) рвётся на перенос
+строк — `read` внутри такого куска перехватывает не то, что нужно, heredoc
+может слипнуться в одну строку. Обычное редактирование файла построчно
+никак не зависит от поведения терминала при вставке — самый надёжный способ
+завести секреты, при всём желании обойтись без него.
+
+Обязательно заполнить: `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`,
+`TELEGRAM_API_ID`/`TELEGRAM_API_HASH` (my.telegram.org), `ADMIN_BOT_TOKEN`,
+`API_SECRET_KEY` (`openssl rand -hex 32` — можно вставить командой, это не
+секрет, вводимый руками, а генерируемый на месте).
+
+## 2. Первый запуск (без TLS ещё нет — курица и яйцо)
+
+Сертификат Let's Encrypt выпускается через HTTP-01 challenge, а challenge
+должен раздавать уже работающий nginx на 80 порту — сначала поднимаем стек с
+самоподписанным сертификатом-заглушкой, потом меняем на настоящий.
+
+```bash
+mkdir -p certs
+openssl req -x509 -nodes -days 1 -newkey rsa:2048 -keyout certs/privkey.pem -out certs/fullchain.pem -subj "/CN=localhost"
 docker compose -f docker-compose.prod.yml --env-file .env up -d --build
-docker compose -f docker-compose.prod.yml exec api python scripts/create_admin.py --username admin
 ```
 
-`--build` собирает образ прямо на сервере из `Dockerfile` — ничего собирать
-локально не нужно.
+Проверьте, что миграция прошла и все контейнеры поднялись:
 
-## 5. Подключить к общему nginx
-
-В `nginx.conf` NX (на сервере) добавить ещё один server-блок — рядом с
-существующим для `i.nxauto.org`:
-
-```nginx
-server {
-    listen 80;
-    server_name ai.nxauto.org;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }  # если остаётся certbot
-    location / { return 301 https://$host$request_uri; }
-}
-
-server {
-    listen 443 ssl;
-    server_name ai.nxauto.org;
-
-    ssl_certificate     /etc/nginx/certs/fullchain.pem;   # или cf-origin.pem, см. §3
-    ssl_certificate_key /etc/nginx/certs/privkey.pem;      # или cf-origin.key
-
-    add_header Strict-Transport-Security "max-age=63072000" always;
-
-    location /api/ {
-        proxy_pass http://nxai-api:8000/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Пока нет собранного web/ для NXai (ROADMAP.md Phase 1+) — заглушка.
-    location / {
-        return 404;
-    }
-}
+```bash
+docker compose -f docker-compose.prod.yml ps
 ```
 
-`http://nxai-api:8000` резолвится по имени контейнера (`container_name:
-nxai-api` уже задан в `docker-compose.prod.yml`), потому что NX-нginx и
-NXai-api сидят в одной сети `edge` — не нужен ни host-порт, ни IP.
+`migrate` должен быть `Exited (0)`, остальные — `Up`/`Up (healthy)`. Полная
+схема (15 таблиц) создаётся одной командой без ручного вмешательства —
+включая расширение `pgvector`, оно теперь бутстрапится прямо в миграции.
 
-Применить: `docker compose -f docker-compose.prod.yml exec nginx nginx -s reload`
-(или пересоздать контейнер, если правили volume с конфигом).
+Заведите первого админа панели (пароль вводится интерактивно, не аргументом):
 
-Проверка: `curl -I https://ai.nxauto.org/api/health` → `{"status":"ok"}`.
+```bash
+docker compose -f docker-compose.prod.yml exec api python scripts/create_admin.py --username admin --superadmin
+```
 
-## 6. Про ботов — без вебхуков и доменов
+Проверьте, что `/.well-known/acme-challenge/` действительно отдаётся наружу
+(порт 80, без редиректа):
+
+```bash
+curl -I http://<домен>/.well-known/acme-challenge/ping
+```
+
+`404` — нормально, важно что не connection refused и не redirect.
+
+## 3. Настоящий сертификат (certbot, webroot)
+
+`docker-compose.prod.yml` содержит два вспомогательных сервиса за
+`profile: tools` — не стартуют с обычным `up`, вызываются вручную. Certbot
+кладёт challenge-файлы в тот же volume, что nginx отдаёт на 80 порту
+(`certbot_webroot`), поэтому webroot-режим работает без остановки nginx:
+
+```bash
+docker compose -f docker-compose.prod.yml --profile tools run --rm certbot certonly --webroot -w /var/www/certbot -d <домен> --email <ваш-email> --agree-tos --non-interactive
+docker compose -f docker-compose.prod.yml --profile tools run --rm -e DOMAIN=<домен> certs-sync
+docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+```
+
+nginx.conf смонтирован как volume (не вшит в образ, в отличие от NX) —
+`nginx -s reload` подхватывает и сертификат, и любые будущие правки конфига
+без пересборки образа.
+
+Проверка: `curl -I https://<домен>/api/health` → `{"status":"ok"}`.
+
+## 4. Продление сертификата
+
+Let's Encrypt сертификаты живут 90 дней. Добавьте на сервер cron:
+
+```cron
+0 3 * * 1 cd /opt/nxai && docker compose -f docker-compose.prod.yml --profile tools run --rm certbot renew --webroot -w /var/www/certbot && docker compose -f docker-compose.prod.yml --profile tools run --rm -e DOMAIN=<домен> certs-sync && docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+```
+
+## 5. Про ботов — без вебхуков
 
 `interfaces/bots/main.py` и `interfaces/telethon_workers/main.py` работают
 через long polling/MTProto — им не нужен ни входящий порт, ни домен, только
-исходящий доступ в интернет. Поэтому `ai.nxauto.org` в этой схеме нужен
-только ради `api` (панели) — рост числа тематических ботов никак не меняет
-сетевую конфигурацию.
+исходящий доступ в интернет. Домен нужен только ради `api` (панели).
 
-## 7. Безопасность
+`ingest`/`bots` контейнеры будут в рестарт-петле, пока в базе нет ни одной
+`TelethonSession`/`ChannelBot` — это ожидаемо для чистого разворачивания, не
+баг. Наполнение (первая тема, Telethon-сессия, тематический бот) — отдельный
+шаг после того, как сам стенд поднят, см. ROADMAP.md Phase 1.
 
-- `postgres`/`redis` не публикуют порты наружу ни в NX, ни здесь (см.
-  `docker-compose.prod.yml`) — доступны только внутри своих docker-сетей.
-- `ufw allow 22,80,443/tcp; ufw enable` — весь остальной трафик на VPS не нужен
-  снаружи вообще (даже 8000 у NXai теперь закрыт, см. §4/`api.networks`).
-- `.env` только на сервере, не в git (см. `.gitignore`).
+## 6. Безопасность
+
+- `postgres`/`redis` не публикуют порты наружу.
+- `ufw allow 22,80,443/tcp; ufw enable`.
+- `.env` только на диске сервера, не в git.
+- `docker compose logs` не должны содержать секретов в открытом виде —
+  `core/logging.py` их не логирует явно, но проверяйте при добавлении новых
+  сервисов.
