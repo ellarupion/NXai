@@ -36,6 +36,7 @@ from core.services.admin_notify import (
     format_error,
     format_published,
 )
+from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.effective_settings import get_effective_settings
 from core.services.publisher import PublisherService
@@ -46,10 +47,37 @@ from core.statistics.client import SourceStatsClient
 
 logger = get_logger(__name__)
 
+BACKFILL_INTERVAL_MINUTES = 15
 SCORE_REFRESH_INTERVAL_MINUTES = 10
 DEDUP_REWRITE_INTERVAL_MINUTES = 5
 PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
+
+
+async def backfill_job() -> None:
+    """Периодическая докачка истории всех активных источников с назначенной
+    сессией-читалкой (core/services/backfill.py) — без этого ingest видит
+    только live-апдейты, случившиеся ПОСЛЕ добавления канала в панель, и
+    источник с редкими постами копил бы кандидатов месяцами. До этого job'а
+    докачка происходила только вручную, по кнопке «Сделать посты»
+    (core/services/force_generate.py)."""
+    session_factory = get_session_factory()
+    received_total = 0
+    async with session_factory() as session:
+        settings = await get_effective_settings(session)
+        result = await session.execute(
+            select(SourceChannel).where(
+                SourceChannel.is_active.is_(True), SourceChannel.ingest_session_id.is_not(None)
+            )
+        )
+        source_channels = list(result.scalars().all())
+
+        for source_channel in source_channels:
+            received_total += await backfill_source_channel(session, source_channel, settings)
+        await session.commit()
+
+    if received_total:
+        logger.info("scheduler.backfill_done", received=received_total)
 
 
 async def score_refresh_job() -> None:
@@ -323,6 +351,10 @@ async def _last_publication_at(session, target_channel_ids: list) -> datetime | 
 def build_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="UTC")
 
+    scheduler.add_job(
+        backfill_job, "interval", minutes=BACKFILL_INTERVAL_MINUTES,
+        id="backfill", max_instances=1,
+    )
     scheduler.add_job(
         score_refresh_job, "interval", minutes=SCORE_REFRESH_INTERVAL_MINUTES,
         id="score_refresh", max_instances=1,

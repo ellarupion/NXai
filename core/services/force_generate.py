@@ -12,7 +12,6 @@ core/services/ingest_candidates.py, докачки за прошлое пока 
 вслепую постов оператор должен явно одобрить — см. core/services/review.py."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -26,16 +25,11 @@ from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus
 from core.models.source_channel import SourceChannel
-from core.models.telethon_session import TelethonSession
+from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
-from core.services.ingest_candidates import IncomingCandidate, IngestCandidatesService
 from core.services.rewrite import RewriteService
-from core.services.scoring import ScoringService
-from core.statistics.client import PostStats, SourceStatsClient
 
 logger = get_logger(__name__)
-
-BACKFILL_LIMIT_PER_CHANNEL = 30
 
 
 class ForceGenerateError(Exception):
@@ -167,53 +161,11 @@ class ForceGenerateService:
         return list(result.scalars().all())
 
     async def _backfill(self, source_channels: list[SourceChannel]) -> None:
-        """Докачивает недавнюю историю каждого source_channel темы через его
-        назначенную Telethon-сессию — единственное место в проекте, где это
-        сейчас происходит (обычный ingest только слушает live-апдейты)."""
-        ingest = IngestCandidatesService(self.session)
-        scoring = ScoringService(self.session)
-
+        """Докачивает недавнюю историю каждого source_channel темы — общая
+        логика с фоновым periodic job'ом (scheduler.py:backfill_job), см.
+        core/services/backfill.py."""
         for source_channel in source_channels:
-            telethon_session = await self.session.get(TelethonSession, source_channel.ingest_session_id)
-            if telethon_session is None:
-                continue
-
-            client = SourceStatsClient(telethon_session.session_string, self.settings)
-            try:
-                await client.connect()
-                messages = await client.get_messages_after(
-                    source_channel.tg_chat_id,
-                    source_channel.last_scanned_message_id or 0,
-                    limit=BACKFILL_LIMIT_PER_CHANNEL,
-                )
-            except Exception:
-                logger.exception("force_generate.backfill_failed", source_channel_id=str(source_channel.id))
-                continue
-            finally:
-                await client.disconnect()
-
-            for message in messages:
-                if not message.text:
-                    continue
-                candidate_id = await ingest.receive_post(
-                    IncomingCandidate(
-                        source_channel_tg_chat_id=source_channel.tg_chat_id,
-                        tg_message_id=message.tg_message_id,
-                        text=message.text,
-                    )
-                )
-                if candidate_id is None:
-                    continue
-                if message.views is not None or message.forwards is not None:
-                    await scoring.record_snapshot(
-                        candidate_id,
-                        PostStats(views=message.views, forwards=message.forwards),
-                        datetime.now(timezone.utc),
-                    )
-
-            if messages:
-                source_channel.last_scanned_message_id = max(m.tg_message_id for m in messages)
-                await self.session.flush()
+            await backfill_source_channel(self.session, source_channel, self.settings)
 
     async def _persona_prompt(self, theme_id: UUID) -> str:
         result = await self.session.execute(

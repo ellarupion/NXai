@@ -6,10 +6,11 @@ TelethonSession, слушает только каналы, которые пан
 добавляется поверх одной раздутой сессии.
 
 Реализовано: живой приём через events.NewMessage → IngestCandidatesService.
-НЕ реализовано (см. ROADMAP.md Phase 1): докачка истории при добавлении
-нового source_channel или после простоя (SourceChannel.last_scanned_message_id
-+ core/statistics/client.py.SourceStatsClient.get_messages_after — тот же
-принцип, что backfill в NX, здесь только место для него подготовлено)."""
+Докачка истории (при добавлении нового source_channel или после простоя
+ingest-воркера) — НЕ здесь, а отдельным периодическим job'ом планировщика
+(scheduler.py:backfill_job → core/services/backfill.py, тот же принцип,
+что backfill в NX, но не завязан на этот процесс): так подхватывается даже
+если сам ingest-воркер долго не поднимался."""
 
 import asyncio
 
