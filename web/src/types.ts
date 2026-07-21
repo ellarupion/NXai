@@ -134,3 +134,13 @@ export interface DashboardStats {
   pool_posts_ready: number;
   top_sources: TopSource[];
 }
+
+export type AlertSeverity = "warning" | "info";
+
+export interface Alert {
+  severity: AlertSeverity;
+  category: string;
+  message: string;
+  theme_id: string | null;
+  source_channel_id: string | null;
+}

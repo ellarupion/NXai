@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { dashboardStatsQuery } from "../api/queries";
+import { alertsQuery, dashboardStatsQuery } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
+import type { Alert } from "../types";
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новые",
@@ -27,6 +28,35 @@ const STATUS_ORDER = [
   "duplicate",
 ];
 
+function AlertsSection() {
+  const { data, isLoading, error } = useQuery(alertsQuery());
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Алерты</h2>
+      {isLoading && <LoadingState />}
+      {error && <ErrorState message={error.message} />}
+      {data && data.length === 0 && (
+        <p className="text-sm text-good">Проблем не обнаружено — всё настроено и работает.</p>
+      )}
+      {data && data.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {data.map((alert: Alert, i: number) => (
+            <li
+              key={i}
+              className={`rounded-lg p-3 text-sm ${
+                alert.severity === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted"
+              }`}
+            >
+              {alert.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 export function Dashboard() {
   const { data, isLoading, error } = useQuery(dashboardStatsQuery());
 
@@ -44,6 +74,8 @@ export function Dashboard() {
           каналах (см. ROADMAP.md Phase 5).
         </p>
       </div>
+
+      <AlertsSection />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatTile label="Тем всего" value={data.themes_total} />

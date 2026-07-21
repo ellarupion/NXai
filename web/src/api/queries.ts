@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  Alert,
   ChannelBot,
   DashboardStats,
   Me,
@@ -62,4 +63,9 @@ export const poolPostsQuery = (themeId?: string) => ({
 export const dashboardStatsQuery = () => ({
   queryKey: ["dashboard-stats"],
   queryFn: () => api.get<DashboardStats>("/dashboard/stats"),
+});
+
+export const alertsQuery = () => ({
+  queryKey: ["alerts"],
+  queryFn: () => api.get<Alert[]>("/alerts"),
 });
