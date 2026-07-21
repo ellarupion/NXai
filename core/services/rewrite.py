@@ -79,11 +79,17 @@ class RewriteService:
         )
         return version
 
-    async def _similarity(self, raw_text: str, rewritten_text: str) -> float:
+    async def _similarity(self, raw_text: str, rewritten_text: str) -> float | None:
         """embedding-дистанция рерайта от оригинала — метрика анти-плагиата
         (см. core/models/post_version.py:PostVersion.source_similarity),
         считается той же моделью, что и дедуп, без отдельного вызова pgvector:
-        для пары текстов проще посчитать косинус в Python, чем гонять через БД."""
+        для пары текстов проще посчитать косинус в Python, чем гонять через БД.
+
+        Без Voyage-ключа возвращает None — это необязательная метрика контроля
+        качества, а не то, от чего зависит сам рерайт (core/embeddings/client.py:
+        is_configured)."""
+        if not self.embeddings.is_configured:
+            return None
         raw_embedding, rewritten_embedding = await self.embeddings.embed([raw_text, rewritten_text])
         return _cosine_similarity(raw_embedding, rewritten_embedding)
 

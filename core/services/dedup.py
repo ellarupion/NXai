@@ -87,7 +87,18 @@ class DedupService:
         DUPLICATE того, у кого он ниже (representative остаётся SELECTED и идёт в
         rewrite). Возвращает id representative, если текущий кандидат был свёрнут
         как дубликат, иначе None (текущий кандидат уникален или сам стал
-        representative)."""
+        representative).
+
+        Без Voyage-ключа (core/embeddings/client.py:is_configured) дедуп молча
+        пропускается — каждый кандидат считается уникальным. На малом числе
+        source_channels/при ручном одобрении (см. core/services/force_generate.py)
+        это приемлемо: пропущенный кросс-канальный дубль просто попадёт в
+        очередь на одобрение как отдельный пост, а не заблокирует пайплайн
+        целиком из-за незаведённого ключа."""
+        if not self.embeddings.is_configured:
+            logger.info("dedup.skipped_no_voyage_key", candidate_id=str(candidate_id))
+            return None
+
         embedding = await self.embed_and_store(candidate_id)
         similar = await self.find_similar_in_theme(candidate_id, theme_id, embedding)
         duplicates = [c for c in similar if c.similarity >= HIGH_SIMILARITY_THRESHOLD]

@@ -22,6 +22,15 @@ class EmbeddingsClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    @property
+    def is_configured(self) -> bool:
+        """Дедуп (core/services/dedup.py) и анти-плагиат метрика рерайта
+        (core/services/rewrite.py._similarity) не критичны для работы пайплайна
+        на малом числе source_channels/при ручном одобрении — обе стороны
+        должны сами проверять этот флаг и пропускать шаг, а не падать, если
+        Voyage-ключ ещё не заведён."""
+        return bool(self.settings.voyage_api_key)
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
