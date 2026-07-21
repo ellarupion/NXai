@@ -7,6 +7,7 @@ ARCHITECTURE.md §5). В отличие от DraftGenerationService в NX (со�
 
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.embeddings.client import EmbeddingsClient
@@ -49,7 +50,13 @@ class RewriteService:
 
         source_similarity = await self._similarity(candidate.raw_text, result.text)
 
-        variant_no = len(candidate.versions) + 1
+        # Не candidate.versions (ленивая relationship — синхронный доступ к ней
+        # под asyncpg падает MissingGreenlet, раз объект не был явно предзагружен
+        # selectinload/joinedload): считаем напрямую запросом.
+        existing_versions = await self.session.scalar(
+            select(func.count()).select_from(PostVersion).where(PostVersion.candidate_post_id == candidate.id)
+        )
+        variant_no = (existing_versions or 0) + 1
         version = PostVersion(
             candidate_post_id=candidate.id,
             variant_no=variant_no,

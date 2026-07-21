@@ -85,3 +85,20 @@ export interface TelethonLoginStepResult {
   status: "done" | "password_required";
   telethon_session: TelethonSession | null;
 }
+
+export interface GeneratedPost {
+  candidate_id: string;
+  source_channel_title: string;
+  rewritten_text: string;
+  score: number | null;
+}
+
+export interface PendingReviewPost {
+  candidate_id: string;
+  theme_id: string;
+  source_channel_title: string;
+  raw_text: string;
+  rewritten_text: string;
+  score: number | null;
+  created_at: string;
+}

@@ -19,7 +19,11 @@ class CandidatePostStatus(str, enum.Enum):
     NEW = "new"                # только что увиден ingest-воркером
     SCORING = "scoring"        # ждёт очередного снапшота метрик (+30м/+2ч/+6ч)
     SELECTED = "selected"      # score прошёл порог, дедуп подтвердил уникальность
-    REWRITTEN = "rewritten"    # LLM-рерайт создан (post_versions), ждёт публикации
+    REWRITTEN = "rewritten"    # LLM-рерайт создан (post_versions), готов для автопаблиш-пула
+    PENDING_REVIEW = "pending_review"  # рерайт создан принудительно ("Сделать посты" в панели,
+                                       # core/services/force_generate.py) — ждёт ручного
+                                       # approve/reject (core/services/review.py) прежде чем
+                                       # стать обычным REWRITTEN и попасть в автопаблиш-шафл
     QUEUED = "queued"          # взят планировщиком в конкретный публикационный слот
     PUBLISHED = "published"
     REJECTED = "rejected"      # не прошёл скоринг/дедуп либо отклонён вручную в панели

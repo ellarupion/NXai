@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from interfaces.api.routers.auth import router as auth_router
+from interfaces.api.routers.candidates import router as candidates_router
 from interfaces.api.routers.channel_bots import router as channel_bots_router
 from interfaces.api.routers.health import router as health_router
 from interfaces.api.routers.settings import router as settings_router
@@ -18,3 +19,4 @@ router.include_router(target_channels_router)
 router.include_router(channel_bots_router)
 router.include_router(settings_router)
 router.include_router(telethon_sessions_router)
+router.include_router(candidates_router)

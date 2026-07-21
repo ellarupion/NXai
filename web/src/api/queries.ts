@@ -2,6 +2,7 @@ import { api } from "./client";
 import type {
   ChannelBot,
   Me,
+  PendingReviewPost,
   SettingsStatus,
   SourceChannel,
   TargetChannel,
@@ -43,4 +44,10 @@ export const telethonSessionsQuery = () => ({
 export const targetChannelsQuery = () => ({
   queryKey: ["target-channels"],
   queryFn: () => api.get<TargetChannel[]>("/target-channels"),
+});
+
+export const pendingReviewQuery = (themeId?: string) => ({
+  queryKey: ["pending-review", { themeId }],
+  queryFn: () =>
+    api.get<PendingReviewPost[]>(`/candidates/pending-review${themeId ? `?theme_id=${themeId}` : ""}`),
 });
