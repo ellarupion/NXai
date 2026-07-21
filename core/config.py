@@ -39,6 +39,13 @@ class Settings(BaseSettings):
 
     admin_bot_token: str = ""
 
+    # Ключ шифрования секретов в БД (bot_token, session_string) — валидный
+    # Fernet-ключ (`python -c "from cryptography.fernet import Fernet;
+    # print(Fernet.generate_key().decode())"`). Если пуст, ключ детерминированно
+    # выводится из api_secret_key — работает без доп. настройки, но привязывает
+    # расшифровку к тому же секрету, что и JWT; в проде задавайте отдельный.
+    secrets_encryption_key: str = ""
+
     @model_validator(mode="after")
     def _prod_requires_real_api_secret(self) -> "Settings":
         if self.environment == "prod" and self.api_secret_key in ("", "dev-secret-change-me"):

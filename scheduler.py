@@ -39,6 +39,7 @@ from core.services.admin_notify import (
     format_published,
 )
 from core.services.backfill import backfill_source_channel
+from core.services.crosspost import crosspost_text
 from core.services.dedup import DedupService
 from core.services.digest import build_digest
 from core.services.effective_settings import get_effective_settings
@@ -348,6 +349,12 @@ async def publish_pool_job() -> None:
                     # принимает собственную публикацию за чужую (аудит, К1).
                     await session.commit()
                     published += 1
+                    # Кросспост тем же текстом в VK/MAX, где включено (аудит,
+                    # п.8.4). Best-effort и уже ПОСЛЕ коммита Telegram-публикации:
+                    # сбой чужой сети не откатывает нашу основную публикацию.
+                    for tc in target_channels:
+                        if tc.crosspost:
+                            await crosspost_text(tc.crosspost, preview_text)
                     await _notify_admin(
                         session,
                         format_published(

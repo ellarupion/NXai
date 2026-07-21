@@ -6,7 +6,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
+from core.models.enums import AuditAction
 from core.services.admin import AdminService
+from core.services.audit import record_audit
 from interfaces.api.auth import CurrentAdmin, create_access_token, get_current_admin
 from interfaces.api.deps import get_db
 
@@ -61,6 +63,11 @@ async def login(
     if admin is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный логин или пароль")
     token = create_access_token(admin.id, admin.username, admin.is_superadmin)
+    await record_audit(
+        session, AuditAction.LOGIN, "admin", str(admin.id),
+        payload={"username": admin.username, "ip": client_ip},
+    )
+    await session.commit()
     return TokenOut(access_token=token)
 
 

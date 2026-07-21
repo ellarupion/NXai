@@ -23,6 +23,18 @@ export interface SourceChannel {
   candidate_count: number;
 }
 
+export interface CrosspostPlatform {
+  enabled?: boolean;
+  access_token?: string;
+  owner_id?: string;
+  chat_id?: string;
+}
+
+export interface CrosspostConfig {
+  vk?: CrosspostPlatform;
+  max?: CrosspostPlatform;
+}
+
 export interface TargetChannel {
   id: string;
   theme_id: string;
@@ -31,6 +43,7 @@ export interface TargetChannel {
   signature: string;
   is_active: boolean;
   metrics_session_id: string | null;
+  crosspost: CrosspostConfig;
 }
 
 export interface PublicationEngagement {

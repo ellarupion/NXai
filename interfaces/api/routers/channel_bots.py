@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.llm.client import LLMClient
 from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
-from core.models.enums import BotRole
+from core.models.enums import AuditAction, BotRole
+from core.services.audit import record_audit
 from core.services.effective_settings import get_effective_settings
 from core.services.style_extractor import StyleExtractorError, extract_style
 from interfaces.api.auth import require_superadmin
@@ -157,6 +158,7 @@ async def update_channel_bot(
 
     if payload.bot_token is not None:
         bot.bot_token = payload.bot_token
+        await record_audit(session, AuditAction.BOT_TOKEN_CHANGE, "channel_bot", str(bot.id))
     if payload.persona_prompt is not None:
         bot.persona_prompt = payload.persona_prompt
     if payload.cadence is not None:

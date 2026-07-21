@@ -12,9 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.candidate_post import CandidatePost
-from core.models.enums import CandidatePostStatus
+from core.models.enums import AuditAction, CandidatePostStatus
 from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
+from core.services.audit import record_audit
 from core.services.effective_settings import get_effective_settings
 from core.services.force_generate import ForceGenerateError, ForceGenerateService
 from core.services.media import download_candidate_photos_by_id
@@ -157,6 +158,7 @@ async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -
         await approve_candidate(session, candidate_id)
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await record_audit(session, AuditAction.APPROVE, "candidate", str(candidate_id))
     await session.commit()
 
 
@@ -166,4 +168,5 @@ async def reject(candidate_id: UUID, session: AsyncSession = Depends(get_db)) ->
         await reject_candidate(session, candidate_id)
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await record_audit(session, AuditAction.REJECT, "candidate", str(candidate_id))
     await session.commit()

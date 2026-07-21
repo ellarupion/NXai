@@ -11,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
+from core.models.enums import AuditAction
+from core.services.audit import record_audit
 from core.services.panel_settings import get_or_create_panel_settings, update_secret_overrides
 from interfaces.api.auth import get_current_admin, require_superadmin
 from interfaces.api.deps import get_db
@@ -121,6 +123,12 @@ async def update_settings_secrets(
         voyage_api_key=payload.voyage_api_key,
         telegram_api_id=payload.telegram_api_id,
         telegram_api_hash=payload.telegram_api_hash,
+    )
+    # Какие именно ключи меняли — без значений, только имена полей.
+    changed = [f for f in payload.model_fields_set]
+    await record_audit(
+        session, AuditAction.SETTINGS_CHANGE, "panel_settings", "secrets",
+        payload={"changed": changed},
     )
     await session.commit()
     return await get_settings_status(session)

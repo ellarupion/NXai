@@ -62,3 +62,6 @@ class AuditAction(str, enum.Enum):
     AD_DETECTED = "ad_detected"
     AD_COVERED = "ad_covered"
     SETTINGS_CHANGE = "settings_change"
+    LOGIN = "login"
+    APPROVE = "approve"
+    BOT_TOKEN_CHANGE = "bot_token_change"

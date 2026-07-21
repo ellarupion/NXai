@@ -17,7 +17,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.events import CANDIDATE_INGESTED, get_event_bus
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
@@ -91,10 +90,6 @@ class IngestCandidatesService:
             "ingest_candidates.candidate_received",
             candidate_id=str(candidate.id),
             source_channel_id=str(source_channel.id),
-        )
-        await get_event_bus().publish(
-            CANDIDATE_INGESTED,
-            {"candidate_id": str(candidate.id), "source_channel_id": str(source_channel.id)},
         )
         return candidate.id
 

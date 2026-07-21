@@ -2,7 +2,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -35,5 +35,12 @@ class TargetChannel(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     metrics_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("telethon_sessions.id", ondelete="SET NULL"), nullable=True
     )
+
+    # Кросспостинг рерайтов в другие сети (аудит, п.8.4). JSONB, а не набор
+    # колонок — платформы и их поля различаются и будут добавляться:
+    #   {"vk": {"enabled": bool, "access_token": str, "owner_id": str},
+    #    "max": {"enabled": bool, "access_token": str, "chat_id": str}}
+    # Тот же пост уходит в Telegram (обязательно) и, если включено, в эти сети.
+    crosspost: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
 
     theme: Mapped["Theme"] = relationship(back_populates="target_channels")

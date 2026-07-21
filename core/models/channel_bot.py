@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from core.models.enums import BotRole
+from core.models.types import EncryptedText
 
 if TYPE_CHECKING:
     from core.models.theme import Theme
@@ -27,8 +28,9 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     admin-бот (role=ADMIN, theme_id=NULL). В отличие от NX, где было ровно два
     фиксированных токена (editor + submission) из .env, здесь число ботов
     растёт из панели вместе с числом тем — поэтому токен хранится в БД, а не
-    в Settings, и шифруется на уровне сервиса, который его читает/пишет
-    (core/services/admin_notify.py и слой панели), а не здесь в модели.
+    в Settings. bot_token — тип EncryptedText (core/models/types.py): шифруется
+    прозрачно при записи и расшифровывается при чтении (core/crypto.py), для
+    остального кода это обычная строка.
 
     cadence — JSONB (см. DEFAULT_CADENCE): каданс публикации из пула для
     этой темы, используется core/services/scheduler_pool.py (шафл + джиттер,
@@ -68,7 +70,7 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("themes.id", ondelete="CASCADE"), nullable=True
     )
     role: Mapped[BotRole] = mapped_column(default=BotRole.THEME, index=True)
-    bot_token: Mapped[str] = mapped_column(Text)
+    bot_token: Mapped[str] = mapped_column(EncryptedText)
     persona_prompt: Mapped[str] = mapped_column(Text, default="")
     cadence: Mapped[dict] = mapped_column(JSONB, default=DEFAULT_CADENCE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

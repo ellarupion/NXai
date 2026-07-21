@@ -12,7 +12,84 @@ import {
   Select,
   StatusBadge,
 } from "../components/ui";
-import type { TargetChannel } from "../types";
+import type { CrosspostConfig, TargetChannel } from "../types";
+
+function CrosspostEditor({ targetChannel }: { targetChannel: TargetChannel }) {
+  const queryClient = useQueryClient();
+  const [config, setConfig] = useState<CrosspostConfig>(targetChannel.crosspost ?? {});
+  const [error, setError] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: (crosspost: CrosspostConfig) =>
+      api.put<TargetChannel>(`/target-channels/${targetChannel.id}/crosspost`, { crosspost }),
+    onSuccess: () => {
+      setError(null);
+      queryClient.invalidateQueries({ queryKey: ["target-channels"] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
+  });
+
+  const vk = config.vk ?? {};
+  const max = config.max ?? {};
+
+  return (
+    <details className="text-xs text-ink-muted">
+      <summary className="cursor-pointer select-none">Кросспост в VK / MAX</summary>
+      <div className="mt-2 flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-ink">
+            <input
+              type="checkbox"
+              checked={Boolean(vk.enabled)}
+              onChange={(e) => setConfig({ ...config, vk: { ...vk, enabled: e.target.checked } })}
+            />
+            <span>VK</span>
+          </label>
+          <Input
+            value={vk.access_token ?? ""}
+            onChange={(e) => setConfig({ ...config, vk: { ...vk, access_token: e.target.value } })}
+            placeholder="VK access_token сообщества"
+          />
+          <Input
+            value={vk.owner_id ?? ""}
+            onChange={(e) => setConfig({ ...config, vk: { ...vk, owner_id: e.target.value } })}
+            placeholder="owner_id (со знаком минус для сообщества, напр. -12345)"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2 text-ink">
+            <input
+              type="checkbox"
+              checked={Boolean(max.enabled)}
+              onChange={(e) => setConfig({ ...config, max: { ...max, enabled: e.target.checked } })}
+            />
+            <span>MAX</span>
+          </label>
+          <Input
+            value={max.access_token ?? ""}
+            onChange={(e) => setConfig({ ...config, max: { ...max, access_token: e.target.value } })}
+            placeholder="MAX bot access_token"
+          />
+          <Input
+            value={max.chat_id ?? ""}
+            onChange={(e) => setConfig({ ...config, max: { ...max, chat_id: e.target.value } })}
+            placeholder="MAX chat_id канала"
+          />
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          className="self-start"
+          disabled={save.isPending}
+          onClick={() => save.mutate(config)}
+        >
+          Сохранить кросспост
+        </Button>
+        {error && <p className="text-bad">{error}</p>}
+      </div>
+    </details>
+  );
+}
 
 function CreateTargetChannelForm() {
   const queryClient = useQueryClient();
@@ -167,6 +244,7 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
           ))}
         </Select>
       </label>
+      <CrosspostEditor targetChannel={targetChannel} />
       {error && <p className="text-xs text-bad">{error}</p>}
     </li>
   );

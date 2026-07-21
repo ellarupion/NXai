@@ -31,6 +31,7 @@ class TargetChannelOut(BaseModel):
     signature: str
     is_active: bool
     metrics_session_id: UUID | None
+    crosspost: dict
 
     model_config = {"from_attributes": True}
 
@@ -48,6 +49,12 @@ class TargetChannelUpdate(BaseModel):
 
 class SetMetricsSessionPayload(BaseModel):
     metrics_session_id: UUID | None
+
+
+class SetCrosspostPayload(BaseModel):
+    # Свободный JSON: {"vk": {"enabled", "access_token", "owner_id"},
+    #                  "max": {"enabled", "access_token", "chat_id"}}
+    crosspost: dict
 
 
 async def _bot_for_theme(session: AsyncSession, theme_id: UUID) -> Bot:
@@ -117,6 +124,21 @@ async def set_metrics_session(
     if target_channel is None:
         raise HTTPException(status_code=404, detail="TargetChannel not found")
     target_channel.metrics_session_id = payload.metrics_session_id
+    await session.flush()
+    await session.commit()
+    return target_channel
+
+
+@router.put("/{target_channel_id}/crosspost", response_model=TargetChannelOut)
+async def set_crosspost(
+    target_channel_id: UUID, payload: SetCrosspostPayload, session: AsyncSession = Depends(get_db)
+) -> TargetChannel:
+    """Настройка кросспоста в VK/MAX (аудит, п.8.4). Токены хранятся в JSONB
+    канала; включение — флаг enabled в конфиге платформы."""
+    target_channel = await session.get(TargetChannel, target_channel_id)
+    if target_channel is None:
+        raise HTTPException(status_code=404, detail="TargetChannel not found")
+    target_channel.crosspost = payload.crosspost
     await session.flush()
     await session.commit()
     return target_channel
