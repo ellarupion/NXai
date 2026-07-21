@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,7 +32,13 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     cadence — JSONB (см. DEFAULT_CADENCE): каданс публикации из пула для
     этой темы, используется core/services/scheduler_pool.py (шафл + джиттер,
-    см. ARCHITECTURE.md §5). Для role=ADMIN не используется."""
+    см. ARCHITECTURE.md §5). Для role=ADMIN не используется.
+
+    notify_chat_id — значим только для role=ADMIN: Bot API не может написать
+    первым тому, кто не начинал диалог с ботом, поэтому это заполняется
+    только когда оператор сам пришлёт /start админ-боту
+    (interfaces/bots/handlers/admin_start.py) — до этого момента уведомления
+    просто некуда слать."""
 
     __tablename__ = "channel_bots"
 
@@ -44,5 +50,6 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     persona_prompt: Mapped[str] = mapped_column(Text, default="")
     cadence: Mapped[dict] = mapped_column(JSONB, default=DEFAULT_CADENCE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    notify_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     theme: Mapped["Theme | None"] = relationship(back_populates="bots")

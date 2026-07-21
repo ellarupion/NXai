@@ -3,6 +3,7 @@ import type {
   ChannelBot,
   Me,
   PendingReviewPost,
+  PoolPost,
   SettingsStatus,
   SourceChannel,
   TargetChannel,
@@ -50,4 +51,9 @@ export const pendingReviewQuery = (themeId?: string) => ({
   queryKey: ["pending-review", { themeId }],
   queryFn: () =>
     api.get<PendingReviewPost[]>(`/candidates/pending-review${themeId ? `?theme_id=${themeId}` : ""}`),
+});
+
+export const poolPostsQuery = (themeId?: string) => ({
+  queryKey: ["pool-posts", { themeId }],
+  queryFn: () => api.get<PoolPost[]>(`/pool-posts${themeId ? `?theme_id=${themeId}` : ""}`),
 });

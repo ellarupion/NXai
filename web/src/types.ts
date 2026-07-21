@@ -52,6 +52,7 @@ export interface ChannelBot {
   cadence: Cadence;
   is_active: boolean;
   token_set: boolean;
+  notify_chat_set: boolean;
 }
 
 // Источник ключа: задан из панели (DB-оверрайд), из .env, или нигде не задан —
@@ -101,4 +102,16 @@ export interface PendingReviewPost {
   rewritten_text: string;
   score: number | null;
   created_at: string;
+}
+
+export type PoolPostStatus = "ready" | "used";
+export type PoolPostSource = "manual" | "generated" | "recycled";
+
+export interface PoolPost {
+  id: string;
+  theme_id: string;
+  text: string;
+  source: PoolPostSource;
+  status: PoolPostStatus;
+  times_used: number;
 }

@@ -21,10 +21,21 @@ from core.models.ad_detection import AdDetection
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
 from core.models.enums import AdDetectionAction, BotRole, CandidatePostStatus
+from core.models.pool_post import PoolPost
+from core.models.post_version import PostVersion
+from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.telethon_session import TelethonSession
+from core.models.theme import Theme
 from core.services.ad_watchdog import cover_if_due
+from core.services.admin_notify import (
+    AdCoveredNotification,
+    PublishedNotification,
+    format_ad_covered,
+    format_error,
+    format_published,
+)
 from core.services.dedup import DedupService
 from core.services.effective_settings import get_effective_settings
 from core.services.publisher import PublisherService
@@ -140,8 +151,12 @@ async def dedup_and_rewrite_job() -> None:
             try:
                 await rewrite.generate(candidate.id, persona_prompt)
                 rewritten += 1
-            except Exception:
+            except Exception as exc:
                 logger.exception("scheduler.rewrite_failed", candidate_id=str(candidate.id))
+                theme = await session.get(Theme, source_channel.theme_id)
+                await _notify_admin(
+                    session, format_error(theme.name if theme else "", "рерайте", str(exc))
+                )
         await session.commit()
 
     if rewritten:
@@ -184,14 +199,29 @@ async def publish_pool_job() -> None:
             async with Bot(token=channel_bot.bot_token) as bot:
                 publisher = PublisherService(session)
                 target_channel = target_channels[0]
+                theme = await session.get(Theme, channel_bot.theme_id)
                 try:
+                    preview_text = await _preview_text_for(session, next_post)
                     if next_post.kind == "candidate":
                         await publisher.publish_candidate(bot, next_post.id, target_channel.id)
                     else:
                         await publisher.publish_pool_post(bot, next_post.id, target_channel.id)
                     published += 1
-                except Exception:
+                    await _notify_admin(
+                        session,
+                        format_published(
+                            PublishedNotification(
+                                theme_name=theme.name if theme else "",
+                                target_channel_title=target_channel.title,
+                                preview_text=preview_text,
+                            )
+                        ),
+                    )
+                except Exception as exc:
                     logger.exception("scheduler.publish_failed", channel_bot_id=str(channel_bot.id))
+                    await _notify_admin(
+                        session, format_error(theme.name if theme else "", "публикации", str(exc))
+                    )
         await session.commit()
 
     if published:
@@ -223,15 +253,60 @@ async def ad_watchdog_job() -> None:
             async with Bot(token=channel_bot.bot_token) as bot:
                 if await cover_if_due(session, bot, detection.id):
                     covered += 1
+                    preview_text = ""
+                    if detection.covering_publication_id is not None:
+                        publication = await session.get(Publication, detection.covering_publication_id)
+                        if publication is not None and publication.pool_post_id is not None:
+                            pool_post = await session.get(PoolPost, publication.pool_post_id)
+                            preview_text = pool_post.text if pool_post else ""
+                    theme = await session.get(Theme, target_channel.theme_id)
+                    await _notify_admin(
+                        session,
+                        format_ad_covered(
+                            AdCoveredNotification(
+                                theme_name=theme.name if theme else "",
+                                target_channel_title=target_channel.title,
+                                covering_preview_text=preview_text,
+                            )
+                        ),
+                    )
         await session.commit()
 
     if covered:
         logger.info("scheduler.ad_watchdog_done", covered=covered)
 
 
-async def _last_publication_at(session, target_channel_ids: list) -> datetime | None:
-    from core.models.publication import Publication
+async def _notify_admin(session, text: str) -> None:
+    """Тихо no-op, если admin-бот не создан или ему ещё не написали /start
+    (ChannelBot.notify_chat_id — см. interfaces/bots/handlers/admin_start.py) —
+    отсутствие получателя не должно ронять сам job, уведомление это
+    вторичный эффект, а не критичная часть пайплайна."""
+    result = await session.execute(
+        select(ChannelBot).where(ChannelBot.role == BotRole.ADMIN, ChannelBot.is_active.is_(True))
+    )
+    admin_bot = result.scalar_one_or_none()
+    if admin_bot is None or admin_bot.notify_chat_id is None:
+        return
+    try:
+        async with Bot(token=admin_bot.bot_token) as bot:
+            await bot.send_message(admin_bot.notify_chat_id, text)
+    except Exception:
+        logger.exception("scheduler.admin_notify_failed")
 
+
+async def _preview_text_for(session, next_post) -> str:
+    if next_post.kind == "candidate":
+        candidate = await session.get(CandidatePost, next_post.id)
+        if candidate is None or candidate.selected_post_version_id is None:
+            return ""
+        post_version = await session.get(PostVersion, candidate.selected_post_version_id)
+        return post_version.rewritten_text if post_version else ""
+
+    pool_post = await session.get(PoolPost, next_post.id)
+    return pool_post.text if pool_post else ""
+
+
+async def _last_publication_at(session, target_channel_ids: list) -> datetime | None:
     if not target_channel_ids:
         return None
     result = await session.execute(

@@ -25,6 +25,10 @@ class ChannelBotOut(BaseModel):
     cadence: dict
     is_active: bool
     token_set: bool
+    # Значим только для role=admin — есть ли получатель уведомлений
+    # (см. core/models/channel_bot.py:notify_chat_id,
+    # interfaces/bots/handlers/admin_start.py). Для role=theme всегда False.
+    notify_chat_set: bool
 
     model_config = {"from_attributes": True}
 
@@ -38,6 +42,7 @@ class ChannelBotOut(BaseModel):
             cadence=bot.cadence,
             is_active=bot.is_active,
             token_set=bool(bot.bot_token),
+            notify_chat_set=bot.notify_chat_id is not None,
         )
 
 

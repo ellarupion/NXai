@@ -20,6 +20,7 @@ const TargetChannels = lazy(() =>
   import("./pages/TargetChannels").then((m) => ({ default: m.TargetChannels })),
 );
 const Review = lazy(() => import("./pages/Review").then((m) => ({ default: m.Review })));
+const PoolPosts = lazy(() => import("./pages/PoolPosts").then((m) => ({ default: m.PoolPosts })));
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -48,6 +49,7 @@ function AppRoutes() {
           <Route path="/target-channels" element={<TargetChannels />} />
           <Route path="/bots" element={<Bots />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/pool-posts" element={<PoolPosts />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

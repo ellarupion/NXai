@@ -152,6 +152,15 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
             {bot.role === "admin" ? "Admin-бот" : (themeName ?? "— без темы —")}
           </span>
           <span className="ml-2 text-xs text-ink-muted">{bot.token_set ? "токен задан" : "токен не задан"}</span>
+          {bot.role === "admin" && (
+            <span
+              className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+                bot.notify_chat_set ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+              }`}
+            >
+              {bot.notify_chat_set ? "получатель есть" : "напишите /start боту"}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge active={bot.is_active} />
@@ -201,7 +210,9 @@ export function Bots() {
       <h1 className="text-xl font-semibold text-ink">Боты</h1>
       <p className="text-sm text-ink-muted">
         Токен каждого бота хранится в базе, не в .env сервера — ротация и добавление
-        новых тематических ботов не требует доступа к серверу.
+        новых тематических ботов не требует доступа к серверу. Admin-боту после
+        создания нужно один раз написать /start в личку в Telegram — иначе Bot API
+        не даст боту написать первым, и уведомления будет некуда слать.
       </p>
 
       <CreateBotForm />
