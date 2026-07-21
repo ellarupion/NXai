@@ -1,9 +1,32 @@
 Generic single-database configuration (async, SQLAlchemy 2.0).
 
-Первую миграцию нужно сгенерировать после того, как поднята БД:
+Начальная миграция (`fe24d8f8f3a0_initial_schema.py`) уже в репозитории —
+после клонирования достаточно:
 
-    docker compose up -d postgres
-    docker compose run --rm migrate alembic revision --autogenerate -m "initial schema"
     docker compose run --rm migrate alembic upgrade head
+
+## Известные грабли автогенерации новых миграций
+
+Если будете генерировать следующую миграцию (`alembic revision --autogenerate`)
+на схему с сильно взаимосвязанными таблицами — autogenerate не всегда
+топологически сортирует `op.create_table(...)` по внешним ключам корректно
+(так и вышло с исходной: `candidate_posts` был поставлен раньше и
+`post_versions`, и `source_channels`, хотя ссылается на обе). После генерации
+**всегда проверяйте порядок таблиц вручную** относительно их FK, прежде чем
+применять — тестового прогона на CI/staging пока нет, ловится только руками
+(`alembic upgrade head` на чистой БД).
+
+`candidate_posts.selected_post_version_id` ↔ `post_versions.candidate_post_id` —
+настоящий цикл (обе таблицы ссылаются друг на друга), поэтому в
+`core/models/candidate_post.py` эта FK помечена `use_alter=True` — autogenerate
+всё равно не выносит её в отдельный `op.create_foreign_key(...)` сама, это
+пришлось сделать руками в существующей миграции. Проверяйте то же самое для
+новых циклических связей.
+
+pgvector: autogenerate рендерит `Vector`-колонки без нужного `import` (см.
+`render_item` в `migrations/env.py`, добавлен для этого, но не всегда
+срабатывает при `create_table` для новой таблицы — тоже проверяйте руками).
+Расширение `CREATE EXTENSION IF NOT EXISTS vector` тоже не создаётся
+автоматически — на чистой БД нужно выполнить его до первого upgrade.
 
 См. ROADMAP.md Phase 1.
