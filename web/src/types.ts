@@ -56,3 +56,20 @@ export interface SettingsStatus {
   anthropic_api_key: SecretStatus;
   voyage_api_key: SecretStatus;
 }
+
+export interface TelethonSession {
+  id: string;
+  label: string;
+  is_active: boolean;
+}
+
+export interface TelethonLoginStartResult {
+  attempt_id: string;
+}
+
+// "password_required" — на аккаунте включена 2FA, нужен ещё один запрос
+// (submit password) с тем же attempt_id прежде чем telethon_session появится.
+export interface TelethonLoginStepResult {
+  status: "done" | "password_required";
+  telethon_session: TelethonSession | null;
+}

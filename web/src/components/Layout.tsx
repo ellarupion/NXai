@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/", label: "Дашборд", end: true },
   { to: "/themes", label: "Темы" },
   { to: "/source-channels", label: "Источники" },
+  { to: "/telethon-sessions", label: "Аккаунты" },
   { to: "/bots", label: "Боты" },
   { to: "/settings", label: "Настройки" },
 ];
