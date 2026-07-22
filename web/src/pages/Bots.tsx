@@ -132,26 +132,41 @@ function CreateBotForm() {
 function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null }) {
   const queryClient = useQueryClient();
   const [newToken, setNewToken] = useState("");
+  const [editingPersona, setEditingPersona] = useState(false);
+  const [persona, setPersona] = useState(bot.persona_prompt);
   const [error, setError] = useState<string | null>(null);
 
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
+
   const update = useMutation({
-    mutationFn: (payload: Partial<Pick<ChannelBot, "is_active">> & { bot_token?: string }) =>
+    mutationFn: (payload: Partial<Pick<ChannelBot, "is_active" | "persona_prompt">> & { bot_token?: string }) =>
       api.put<ChannelBot>(`/channel-bots/${bot.id}`, payload),
     onSuccess: () => {
       setError(null);
       setNewToken("");
-      queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
+      setEditingPersona(false);
+      invalidate();
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось обновить бота"),
   });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/channel-bots/${bot.id}`),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось удалить бота"),
+  });
+
+  const busy = update.isPending || remove.isPending;
+  const label = bot.role === "admin" ? "Admin-бот" : (themeName ?? "— без темы —");
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <span className="font-medium text-ink">
-            {bot.role === "admin" ? "Admin-бот" : (themeName ?? "— без темы —")}
-          </span>
+          <span className="font-medium text-ink">{label}</span>
           <span className="ml-2 text-xs text-ink-muted">{bot.token_set ? "токен задан" : "токен не задан"}</span>
           {bot.role === "admin" && (
             <span
@@ -167,14 +182,70 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
           <StatusBadge active={bot.is_active} />
           <Button
             variant="secondary"
-            disabled={update.isPending}
+            disabled={busy}
             onClick={() => update.mutate({ is_active: !bot.is_active })}
           >
             {bot.is_active ? "Отключить" : "Включить"}
           </Button>
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm(`Удалить бота «${label}»? Это необратимо.`)) remove.mutate();
+            }}
+          >
+            Удалить
+          </Button>
         </div>
       </div>
-      {bot.persona_prompt && <p className="text-sm text-ink-muted">{bot.persona_prompt}</p>}
+
+      {bot.role !== "admin" && (
+        <>
+          {editingPersona ? (
+            <div className="flex flex-col gap-2">
+              <Textarea
+                value={persona}
+                onChange={(e) => setPersona(e.target.value)}
+                placeholder="Персона/стиль для рерайта"
+                rows={4}
+              />
+              <div className="flex gap-2">
+                <Button onClick={() => update.mutate({ persona_prompt: persona })} disabled={busy}>
+                  Сохранить
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setPersona(bot.persona_prompt);
+                    setEditingPersona(false);
+                    setError(null);
+                  }}
+                  disabled={busy}
+                >
+                  Отмена
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm text-ink-muted">
+                {bot.persona_prompt || "Персона не задана."}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPersona(bot.persona_prompt);
+                  setEditingPersona(true);
+                }}
+                className="shrink-0 text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+              >
+                Изменить персону
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -192,7 +263,7 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
           placeholder="Заменить токен"
           className="flex-1"
         />
-        <Button type="submit" variant="secondary" disabled={update.isPending || !newToken}>
+        <Button type="submit" variant="secondary" disabled={busy || !newToken}>
           Заменить
         </Button>
       </form>

@@ -181,3 +181,16 @@ async def update_channel_bot(
         await session.rollback()
         raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)
+
+
+@router.delete("/{channel_bot_id}", status_code=204)
+async def delete_channel_bot(
+    channel_bot_id: UUID, session: AsyncSession = Depends(get_db)
+) -> None:
+    """Полное удаление бота. Процесс ботов подхватит удаление на следующем
+    reconcile-тике (hot-reload) и остановит его поллинг без рестарта."""
+    bot = await session.get(ChannelBot, channel_bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="ChannelBot not found")
+    await session.delete(bot)
+    await session.commit()
