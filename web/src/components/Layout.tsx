@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: "/target-channels", label: "Каналы" },
   { to: "/bots", label: "Боты" },
   { to: "/review", label: "Проверка" },
+  { to: "/queue", label: "Очередь" },
   { to: "/pool-posts", label: "Запас" },
   { to: "/settings", label: "Настройки" },
 ];

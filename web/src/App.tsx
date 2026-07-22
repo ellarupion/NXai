@@ -23,6 +23,7 @@ const Review = lazy(() => import("./pages/Review").then((m) => ({ default: m.Rev
 const PoolPosts = lazy(() => import("./pages/PoolPosts").then((m) => ({ default: m.PoolPosts })));
 const Setup = lazy(() => import("./pages/Setup").then((m) => ({ default: m.Setup })));
 const ThemeCard = lazy(() => import("./pages/ThemeCard").then((m) => ({ default: m.ThemeCard })));
+const Queue = lazy(() => import("./pages/Queue").then((m) => ({ default: m.Queue })));
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -52,6 +53,7 @@ function AppRoutes() {
           <Route path="/target-channels" element={<TargetChannels />} />
           <Route path="/bots" element={<Bots />} />
           <Route path="/review" element={<Review />} />
+          <Route path="/queue" element={<Queue />} />
           <Route path="/pool-posts" element={<PoolPosts />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/setup" element={<Setup />} />
