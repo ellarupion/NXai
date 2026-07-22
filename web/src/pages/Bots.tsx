@@ -15,7 +15,7 @@ import {
   Textarea,
 } from "../components/ui";
 import { PersonaEditor, type PersonaValue } from "../components/PersonaEditor";
-import type { BotRole, Cadence, ChannelBot } from "../types";
+import type { BotRole, Cadence, ChannelBot, PersonaConfig } from "../types";
 
 const DEFAULT_CADENCE: Cadence = {
   posts_per_day_target: 8,
@@ -151,6 +151,94 @@ function personaSummary(bot: ChannelBot): string {
   return (head + (bot.persona_prompt || "")).trim();
 }
 
+/* Автоправила дообучения: причина отклонения -> как компенсировать в персоне.
+   apply возвращает патч конфига/особых указаний; null у wrong_tone — тону нет
+   универсальной правки, зовём в конструктор. */
+const REJECTION_FIXES: Record<
+  string,
+  { fix: ((c: PersonaConfig, custom: string) => { config: PersonaConfig; custom: string }) | null; hint: string }
+> = {
+  too_long: {
+    hint: "выставит длину «короче исходника»",
+    fix: (c, custom) => ({ config: { ...c, length: "shorter" }, custom }),
+  },
+  officialese: {
+    hint: "добавит правило против канцелярита",
+    fix: (c, custom) => ({
+      config: c,
+      custom: appendRule(custom, "Никакого канцелярита — пиши живым разговорным языком."),
+    }),
+  },
+  watery: {
+    hint: "добавит правило против воды",
+    fix: (c, custom) => ({
+      config: c,
+      custom: appendRule(custom, "Без воды: каждое предложение несёт смысл, пустые фразы вырезай."),
+    }),
+  },
+  lost_point: {
+    hint: "снизит смелость рерайта — ближе к сути исходника",
+    fix: (c, custom) => ({ config: { ...c, boldness: 2 }, custom }),
+  },
+  ad: {
+    hint: "добавит правило против промо-оборотов",
+    fix: (c, custom) => ({
+      config: c,
+      custom: appendRule(custom, "Не превращай пост в рекламу: промо-обороты и призывы «подписывайся/покупай» убирай."),
+    }),
+  },
+  wrong_tone: { hint: "тон правится в конструкторе персоны", fix: null },
+};
+
+function appendRule(custom: string, rule: string): string {
+  if (custom.includes(rule)) return custom;
+  return custom ? `${custom}\n${rule}` : rule;
+}
+
+function RejectionSignals({ bot, onApply }: { bot: ChannelBot; onApply: (v: { config: PersonaConfig; custom: string }) => void }) {
+  const stats = useQuery({
+    queryKey: ["rejection-stats", bot.id],
+    queryFn: () =>
+      api.get<{ days: number; stats: Array<{ reason: string; label: string; count: number }> }>(
+        `/channel-bots/${bot.id}/rejection-stats`,
+      ),
+  });
+  if (!stats.data || stats.data.stats.length === 0) return null;
+  return (
+    <div className="rounded-lg bg-surface-2 p-3">
+      <p className="mb-2 text-xs font-medium text-ink">
+        Сигналы с Проверки за {stats.data.days} дней — почему отклоняли посты:
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {stats.data.stats.map((st) => {
+          const fixer = REJECTION_FIXES[st.reason];
+          return (
+            <li key={st.reason} className="flex items-center justify-between gap-2 text-xs text-ink-muted">
+              <span>
+                {st.label} — ×{st.count}
+              </span>
+              {fixer?.fix ? (
+                <button
+                  type="button"
+                  title={fixer.hint}
+                  onClick={() =>
+                    onApply(fixer.fix!(bot.persona_config ?? {}, bot.persona_prompt))
+                  }
+                  className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent hover:opacity-80"
+                >
+                  Добавить правило
+                </button>
+              ) : (
+                <span className="shrink-0 italic">{fixer?.hint}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null }) {
   const queryClient = useQueryClient();
   const [newToken, setNewToken] = useState("");
@@ -254,6 +342,10 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
 
       {bot.role !== "admin" && (
         <>
+          <RejectionSignals
+            bot={bot}
+            onApply={(v) => update.mutate({ persona_prompt: v.custom, persona_config: v.config })}
+          />
           {editingPersona ? (
             <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
               <h3 className="text-xs font-semibold text-ink">Конструктор персоны</h3>

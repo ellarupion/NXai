@@ -162,10 +162,20 @@ async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -
     await session.commit()
 
 
+class RejectPayload(BaseModel):
+    # Слаг причины из core/services/review.py:REJECTION_REASONS; None —
+    # отклонить без причины (например, хоткеем D).
+    reason: str | None = None
+
+
 @router.post("/{candidate_id}/reject", status_code=204)
-async def reject(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -> None:
+async def reject(
+    candidate_id: UUID,
+    payload: RejectPayload | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> None:
     try:
-        await reject_candidate(session, candidate_id)
+        await reject_candidate(session, candidate_id, payload.reason if payload else None)
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await record_audit(session, AuditAction.REJECT, "candidate", str(candidate_id))

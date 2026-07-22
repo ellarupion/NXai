@@ -16,6 +16,7 @@ from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
 from core.models.source_channel import SourceChannel
 from core.models.enums import AuditAction, BotRole
 from core.services.audit import record_audit
+from core.services.review import REJECTION_REASONS
 from core.services.rewrite import ANTI_COPY_INSTRUCTIONS
 from core.services.effective_settings import get_effective_settings
 from core.services.persona import build_persona_prompt
@@ -101,6 +102,17 @@ class ChannelBotUpdate(BaseModel):
     cadence: dict | None = None
     is_active: bool | None = None
     theme_id: UUID | None = None
+
+
+class RejectionStat(BaseModel):
+    reason: str
+    label: str
+    count: int
+
+
+class RejectionStatsOut(BaseModel):
+    days: int
+    stats: list[RejectionStat]
 
 
 class BotCheckOut(BaseModel):
@@ -219,6 +231,46 @@ async def update_channel_bot(
         await session.rollback()
         raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)
+
+
+@router.get("/{channel_bot_id}/rejection-stats", response_model=RejectionStatsOut)
+async def rejection_stats(
+    channel_bot_id: UUID, session: AsyncSession = Depends(get_db)
+) -> RejectionStatsOut:
+    """Сводка «почему отклоняли» по теме бота за последние 14 дней — сигналы
+    для дообучения персоны: «4× канцелярит» — повод добавить компенсирующее
+    правило (кнопка в панели)."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func
+
+    from core.models.enums import CandidatePostStatus
+
+    bot = await session.get(ChannelBot, channel_bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="ChannelBot not found")
+    days = 14
+    if bot.theme_id is None:
+        return RejectionStatsOut(days=days, stats=[])
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await session.execute(
+        select(CandidatePost.rejection_reason, func.count())
+        .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
+        .where(
+            SourceChannel.theme_id == bot.theme_id,
+            CandidatePost.status == CandidatePostStatus.REJECTED,
+            CandidatePost.rejection_reason.is_not(None),
+            CandidatePost.updated_at >= since,
+        )
+        .group_by(CandidatePost.rejection_reason)
+        .order_by(func.count().desc())
+    )
+    stats = [
+        RejectionStat(reason=reason, label=REJECTION_REASONS.get(reason, reason), count=count)
+        for reason, count in result.all()
+    ]
+    return RejectionStatsOut(days=days, stats=stats)
 
 
 @router.post("/{channel_bot_id}/preview-rewrite", response_model=PreviewRewriteOut)

@@ -76,9 +76,26 @@ async def edit_candidate_text(
     return version
 
 
-async def reject_candidate(session: AsyncSession, candidate_id: UUID) -> CandidatePost:
+# Фиксированные причины отклонения («Отклонить с причиной», UX-этап 5).
+# Слаг -> русская подпись; сводка по ним живёт у бота темы (rejection-stats).
+REJECTION_REASONS: dict[str, str] = {
+    "too_long": "слишком длинно",
+    "officialese": "канцелярит",
+    "wrong_tone": "не тот тон",
+    "watery": "вода",
+    "lost_point": "потерял суть",
+    "ad": "реклама/мусор",
+}
+
+
+async def reject_candidate(
+    session: AsyncSession, candidate_id: UUID, reason: str | None = None
+) -> CandidatePost:
+    if reason is not None and reason not in REJECTION_REASONS:
+        raise ReviewError(f"Неизвестная причина отклонения: {reason}")
     candidate = await _get_pending_candidate(session, candidate_id)
     candidate.status = CandidatePostStatus.REJECTED
+    candidate.rejection_reason = reason
     await session.flush()
     await adjust_trust_score(session, candidate.source_channel_id, -REJECTED_PENALTY)
     return candidate

@@ -90,6 +90,15 @@ function GenerateForm() {
   );
 }
 
+const REJECTION_REASONS: Array<{ slug: string; label: string }> = [
+  { slug: "too_long", label: "Слишком длинно" },
+  { slug: "officialese", label: "Канцелярит" },
+  { slug: "wrong_tone", label: "Не тот тон" },
+  { slug: "watery", label: "Вода" },
+  { slug: "lost_point", label: "Потерял суть" },
+  { slug: "ad", label: "Реклама/мусор" },
+];
+
 function MediaPreview({ candidateId }: { candidateId: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -127,6 +136,7 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [choosingReason, setChoosingReason] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.rewritten_text);
 
@@ -142,7 +152,8 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
   });
 
   const reject = useMutation({
-    mutationFn: () => api.post(`/candidates/${post.candidate_id}/reject`),
+    mutationFn: (reason: string | null) =>
+      api.post(`/candidates/${post.candidate_id}/reject`, { reason }),
     onSuccess: () => {
       setError(null);
       invalidate();
@@ -239,14 +250,50 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
             </p>
           )}
 
-          <div className="flex gap-2">
-            <Button onClick={() => approve.mutate()} disabled={busy}>
-              Одобрить
-            </Button>
-            <Button variant="danger" onClick={() => reject.mutate()} disabled={busy}>
-              Отклонить
-            </Button>
-          </div>
+          {choosingReason ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-ink-muted">
+                Что не так? Причины копятся у бота темы как подсказки для доводки стиля.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {REJECTION_REASONS.map((r) => (
+                  <button
+                    key={r.slug}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => reject.mutate(r.slug)}
+                    className="rounded-full bg-bad-soft px-3 py-1 text-xs font-medium text-bad hover:opacity-80"
+                  >
+                    {r.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => reject.mutate(null)}
+                  className="rounded-full bg-surface-2 px-3 py-1 text-xs text-ink-muted hover:text-ink"
+                >
+                  Без причины
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChoosingReason(false)}
+                  className="rounded-full px-3 py-1 text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Button onClick={() => approve.mutate()} disabled={busy}>
+                Одобрить
+              </Button>
+              <Button variant="danger" onClick={() => setChoosingReason(true)} disabled={busy}>
+                Отклонить
+              </Button>
+            </div>
+          )}
         </>
       )}
       {error && <p className="text-xs text-bad">{error}</p>}

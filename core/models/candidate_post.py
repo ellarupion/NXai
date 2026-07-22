@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,6 +57,12 @@ class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # 7 дней) — заполняется на каждом контрольном снапшоте, финальное значение перед
     # выбором в SELECTED берётся из последнего доступного core/models/metrics_snapshot.py.
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # «Отклонить с причиной» (UX-этап 5): слаг причины из фиксированного
+    # набора (too_long/officialese/wrong_tone/watery/lost_point/ad) — сигналы
+    # копятся в сводку у бота темы (rejection-stats) как подсказки, что
+    # поправить в персоне. NULL — отклонён без причины или не отклонялся.
+    rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     # Self-FK: если дедуп находит более ранний кандидат с cosine similarity выше
