@@ -18,12 +18,17 @@ function GenerateForm() {
   const queryClient = useQueryClient();
   const themes = useQuery(themesQuery());
   const [themeId, setThemeId] = useState("");
-  const [count, setCount] = useState(3);
+  // Строкой, а не числом: иначе Number() на каждый ввод залипляет ведущий ноль
+  // и мешает очистить поле. В число приводим и ограничиваем 1–10 при отправке.
+  const [count, setCount] = useState("3");
   const [error, setError] = useState<string | null>(null);
   const [lastGenerated, setLastGenerated] = useState<GeneratedPost[] | null>(null);
 
+  const clampedCount = Math.min(10, Math.max(1, Number(count) || 1));
+
   const generate = useMutation({
-    mutationFn: () => api.post<GeneratedPost[]>("/candidates/generate", { theme_id: themeId, count }),
+    mutationFn: () =>
+      api.post<GeneratedPost[]>("/candidates/generate", { theme_id: themeId, count: clampedCount }),
     onSuccess: (data) => {
       setError(null);
       setLastGenerated(data);
@@ -65,7 +70,8 @@ function GenerateForm() {
           min={1}
           max={10}
           value={count}
-          onChange={(e) => setCount(Number(e.target.value))}
+          onChange={(e) => setCount(e.target.value)}
+          onBlur={() => setCount(String(clampedCount))}
           className="w-24"
         />
         <span title={!themeId ? "Сначала выберите тему" : undefined}>
