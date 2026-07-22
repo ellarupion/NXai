@@ -1,50 +1,178 @@
 @import "tailwindcss";
 
-/* Токены — та же приглушённая палитра/структура, что в NX web/src/index.css,
-   без самостоятельно захостенных шрифтов (упрощение — system-ui вместо IBM Plex,
-   добавить позже тривиально, если понадобится). Только системная тёмная тема
-   через media-запрос — ручного переключателя пока нет. */
-:root {
-  --bg: #f1f4f6;
-  --surface: #ffffff;
-  --surface-2: #e8edf1;
-  --border: #dce3e8;
-  --ink: #2a3742;
-  --ink-muted: #647587;
-  --accent: #2896a5;
-  --accent-strong: #1f7986;
-  --accent-soft: #e1f0f2;
-  --accent-ink: #ffffff;
-  --good: #35a575;
-  --good-soft: #e5f5ed;
-  --bad: #d15b5b;
-  --bad-soft: #fbeaea;
-  --shadow: 0 1px 2px rgba(42, 55, 66, 0.04), 0 4px 14px rgba(42, 55, 66, 0.04);
+/* NXai Control Room — собственный визуальный язык панели, намеренно разведён с
+   референсным NX: тёмная-первичная тема (графит) + кислотно-лаймовый акцент
+   вместо телеграмного teal, боковая навигация вместо верхнего навбара и другая
+   типографика. Шрифты самостоятельно захостены в public/fonts (Google Fonts по
+   сети недоступен/медленный в РФ — основная аудитория). С кириллическим
+   unicode-range у всех начертаний.
+     - Unbounded (700/800) — логотип и крупные заголовки, «фирменный» голос.
+     - Manrope (400/500/600) — весь текст интерфейса.
+     - JetBrains Mono (400/500) — цифры метрик/бейджей, «пультовый» вид. */
+
+/* --- Manrope (UI-текст) --- */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/manrope-cyrillic-400-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/manrope-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/manrope-cyrillic-500-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/manrope-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/manrope-cyrillic-600-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/manrope-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 
-@media (prefers-color-scheme: dark) {
+/* --- Unbounded (логотип/дисплейные заголовки) --- */
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/unbounded-cyrillic-700-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/unbounded-cyrillic-800-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "Unbounded";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+
+/* --- JetBrains Mono (цифры/метрики) --- */
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-cyrillic-400-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-cyrillic-500-normal.woff2") format("woff2");
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
+}
+
+/* Токены. По умолчанию (:root) — ТЁМНАЯ тема (dark-first, в отличие от NX, где
+   базовая светлая). Светлая — вторична, под prefers-color-scheme: light. */
+:root {
+  --bg: #0c0f14;
+  --surface: #141922;
+  --surface-2: #1c232e;
+  --border: #2a3340;
+  --ink: #e6edf3;
+  --ink-muted: #8b97a5;
+  --accent: #bef522;
+  --accent-strong: #cffa4d;
+  --accent-soft: #1e2a10;
+  --accent-ink: #0c0f14;
+  --good: #4ade80;
+  --good-soft: #12301f;
+  --bad: #f76d6d;
+  --bad-soft: #33191a;
+  /* Мягкое лаймовое свечение — «control room»-акцент вокруг активных элементов. */
+  --glow: 0 0 0 1px rgba(190, 245, 34, 0.35), 0 0 18px rgba(190, 245, 34, 0.12);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+@media (prefers-color-scheme: light) {
   :root {
-    --bg: #17212b;
-    --surface: #1e2a35;
-    --surface-2: #26333f;
-    --border: #324150;
-    --ink: #dee6ec;
-    --ink-muted: #90a0ae;
-    --accent: #4fb8c4;
-    --accent-strong: #6bcbd5;
-    --accent-soft: #1e3a40;
-    --accent-ink: #0b1e21;
-    --good: #57bd8e;
-    --good-soft: #1b3a2c;
-    --bad: #db7676;
-    --bad-soft: #3d2323;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.16), 0 6px 18px rgba(0, 0, 0, 0.2);
+    --bg: #f4f6f2;
+    --surface: #ffffff;
+    --surface-2: #eef1ea;
+    --border: #dfe3d9;
+    --ink: #1b2129;
+    --ink-muted: #5c6773;
+    --accent: #7cbb00;
+    --accent-strong: #6aa300;
+    --accent-soft: #eef7d6;
+    --accent-ink: #101510;
+    --good: #2f9e5f;
+    --good-soft: #e5f5ea;
+    --bad: #d15b5b;
+    --bad-soft: #fbeaea;
+    --glow: 0 0 0 1px rgba(124, 187, 0, 0.4);
+    --shadow: 0 1px 2px rgba(27, 33, 41, 0.05), 0 6px 18px rgba(27, 33, 41, 0.06);
   }
 }
 
 /* Tailwind v4 CSS-first theming: bg-accent/text-ink-muted/border-border и т.п.
-   читают значение из CSS-переменной в момент рендера, не запекаются на этапе
-   сборки — тот же трюк, что в NX. */
+   читают CSS-переменную в момент рендера. Добавлены семейства display/mono. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -61,8 +189,9 @@
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
 
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", monospace;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Unbounded", "Manrope", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 }
 
 * {
@@ -102,12 +231,21 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
 .shadow-token {
   box-shadow: var(--shadow);
+}
+
+.glow-accent {
+  box-shadow: var(--glow);
 }
 
 ::selection {
@@ -117,13 +255,4 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.001ms !important;
-    animation-duration: 0.001ms !important;
-  }
 }
