@@ -25,13 +25,13 @@ const DEFAULT_CADENCE: Cadence = {
   quiet_hours_end: 8,
 };
 
-const CADENCE_FIELDS: Array<{ key: keyof Cadence; label: string }> = [
-  { key: "posts_per_day_target", label: "Постов/день" },
-  { key: "min_interval_minutes", label: "Мин. интервал, мин" },
-  { key: "max_interval_minutes", label: "Макс. интервал, мин" },
-  { key: "jitter_minutes", label: "Джиттер, мин" },
-  { key: "quiet_hours_start", label: "Тихие часы с (по таймзоне проекта)" },
-  { key: "quiet_hours_end", label: "Тихие часы до (по таймзоне проекта)" },
+const CADENCE_FIELDS: Array<{ key: keyof Cadence; label: string; hint: string }> = [
+  { key: "posts_per_day_target", label: "Постов в день", hint: "Сколько постов бот старается выпустить за сутки" },
+  { key: "min_interval_minutes", label: "Пауза между постами: от, мин", hint: "Раньше этого срока следующий пост не выйдет" },
+  { key: "max_interval_minutes", label: "Пауза между постами: до, мин", hint: "Дольше этого срока бот ждать не будет" },
+  { key: "jitter_minutes", label: "Разброс времени, ± мин", hint: "Случайный сдвиг каждого поста, чтобы расписание выглядело живым, а не роботским" },
+  { key: "quiet_hours_start", label: "Не постить с, час", hint: "Начало ночной тишины — по часовому поясу из Настроек" },
+  { key: "quiet_hours_end", label: "Не постить до, час", hint: "Конец ночной тишины — по часовому поясу из Настроек" },
 ];
 
 function CreateBotForm() {
@@ -108,8 +108,8 @@ function CreateBotForm() {
         )}
         {role === "theme" && (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {CADENCE_FIELDS.map(({ key, label }) => (
-              <label key={key} className="flex flex-col gap-1 text-xs text-ink-muted">
+            {CADENCE_FIELDS.map(({ key, label, hint }) => (
+              <label key={key} title={hint} className="flex flex-col gap-1 text-xs text-ink-muted">
                 {label}
                 <Input
                   type="number"
@@ -246,27 +246,34 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
         </>
       )}
 
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!newToken) return;
-          setError(null);
-          update.mutate({ bot_token: newToken });
-        }}
-      >
-        <Input
-          type="password"
-          autoComplete="off"
-          value={newToken}
-          onChange={(e) => setNewToken(e.target.value)}
-          placeholder="Заменить токен"
-          className="flex-1"
-        />
-        <Button type="submit" variant="secondary" disabled={busy || !newToken}>
-          Заменить
-        </Button>
-      </form>
+      {/* Свёрнуто: замена токена — редкая операция, постоянно открытое поле
+          только шумит в списке. */}
+      <details>
+        <summary className="cursor-pointer select-none text-xs text-ink-muted hover:text-ink">
+          Заменить токен
+        </summary>
+        <form
+          className="mt-2 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!newToken) return;
+            setError(null);
+            update.mutate({ bot_token: newToken });
+          }}
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            value={newToken}
+            onChange={(e) => setNewToken(e.target.value)}
+            placeholder="Новый токен от @BotFather"
+            className="flex-1"
+          />
+          <Button type="submit" variant="secondary" disabled={busy || !newToken}>
+            Заменить
+          </Button>
+        </form>
+      </details>
       {error && <p className="text-xs text-bad">{error}</p>}
     </li>
   );
@@ -348,10 +355,11 @@ export function Bots() {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-semibold text-ink">Боты</h1>
       <p className="text-sm text-ink-muted">
-        Токен каждого бота хранится в базе, не в .env сервера — ротация и добавление
-        новых тематических ботов не требует доступа к серверу. Admin-боту после
-        создания нужно один раз написать /start в личку в Telegram — иначе Bot API
-        не даст боту написать первым, и уведомления будет некуда слать.
+        Боты — это «руки» системы: тематический бот публикует посты в каналы своей
+        темы и пишет их в её стиле (персоне), admin-бот шлёт вам уведомления и
+        статистику. Токены хранятся в панели — доступ к серверу для смены не нужен.
+        Admin-боту после создания один раз напишите /start в личку в Telegram, иначе
+        Telegram не даст ему написать вам первым.
       </p>
       <Callout>
         Новый или изменённый бот подхватывается автоматически в течение ~30 секунд,

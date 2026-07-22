@@ -7,15 +7,15 @@ import { plural } from "../lib/plural";
 import type { SourceChannel } from "../types";
 
 function formatScanned(iso: string | null): string {
-  if (!iso) return "ещё не сканировался";
+  if (!iso) return "ждёт первого чтения (начнётся само в течение минуты)";
   const then = new Date(iso).getTime();
   const mins = Math.floor((Date.now() - then) / 60000);
-  if (mins < 1) return "просканирован только что";
-  if (mins < 60) return `просканирован ${mins} ${plural(mins, "минуту", "минуты", "минут")} назад`;
+  if (mins < 1) return "прочитан только что";
+  if (mins < 60) return `прочитан ${mins} ${plural(mins, "минуту", "минуты", "минут")} назад`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `просканирован ${hours} ${plural(hours, "час", "часа", "часов")} назад`;
+  if (hours < 24) return `прочитан ${hours} ${plural(hours, "час", "часа", "часов")} назад`;
   const days = Math.floor(hours / 24);
-  return `просканирован ${days} ${plural(days, "день", "дня", "дней")} назад`;
+  return `прочитан ${days} ${plural(days, "день", "дня", "дней")} назад`;
 }
 
 function SourceRow({ channel }: { channel: SourceChannel }) {
@@ -104,10 +104,10 @@ function TrustScoreBadge({ value }: { value: number }) {
     value >= 1.0 ? "bg-good-soft text-good" : value >= 0.5 ? "bg-surface-2 text-ink-muted" : "bg-bad-soft text-bad";
   return (
     <span
-      title="Доверие к источнику — растёт автоматически на удачных постах, падает на дублях и отклонённых"
+      title="Надёжность источника: растёт сама, когда его посты доходят до публикации, и падает на повторах и отклонённых. Влияет на шанс попадания постов в отбор."
       className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${styles}`}
     >
-      trust {value.toFixed(2)}
+      надёжность {value.toFixed(2)}
     </span>
   );
 }
@@ -161,7 +161,7 @@ function AssignSessionCell({ channel }: { channel: SourceChannel }) {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ["source-channels"] });
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось назначить сессию"),
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось назначить читалку"),
   });
 
   return (
@@ -172,7 +172,7 @@ function AssignSessionCell({ channel }: { channel: SourceChannel }) {
         onChange={(e) => assign.mutate(e.target.value === "" ? null : e.target.value)}
         className="min-w-[10rem]"
       >
-        <option value="">— без сессии —</option>
+        <option value="">— читалка не назначена —</option>
         {sessions.data?.map((s) => (
           <option key={s.id} value={s.id}>
             {s.label}
@@ -273,9 +273,11 @@ export function SourceChannels() {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-semibold text-ink">Источники</h1>
-        <Button variant="secondary" onClick={() => setUnassignedOnly((v) => !v)}>
-          {unassignedOnly ? "Показать все" : "Только без темы"}
-        </Button>
+        <span title="Источники без темы не участвуют в работе — их посты никуда не идут">
+          <Button variant="secondary" onClick={() => setUnassignedOnly((v) => !v)}>
+            {unassignedOnly ? "Показать все" : "Только без темы"}
+          </Button>
+        </span>
       </div>
 
       <p className="text-sm text-ink-muted">

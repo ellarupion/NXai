@@ -32,11 +32,13 @@ function CreatePoolPostForm() {
 
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-ink">Добавить пост в пул</h2>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Добавить пост в запас</h2>
       <p className="mb-3 text-sm text-ink-muted">
-        Запасной evergreen-контент темы — используется для обычного заполнения
-        расписания, когда пул рерайтов пуст, и для авто-перекрытия рекламы (публикуется
-        поверх чужого/рекламного поста в целевом канале в течение часа после детекта).
+        Запас — «вечные» посты темы, которые не устаревают. Они выручают в двух
+        случаях: когда свежих переписанных постов не хватает, чтобы держать
+        расписание, и когда в вашем канале появляется чужая реклама — антиреклама
+        в течение часа перекрывает её постом из запаса. Держите в каждой теме
+        3–5 таких постов.
       </p>
       <form
         className="flex flex-col gap-2"
@@ -93,7 +95,7 @@ function PoolPostRow({ post }: { post: PoolPost }) {
     onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось удалить"),
   });
 
-  const statusLabel = post.status === "ready" ? "Готов" : "Использован (в ротации)";
+  const statusLabel = post.status === "ready" ? "Готов к выходу" : "Недавно выходил (отдыхает)";
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
@@ -147,16 +149,16 @@ export function PoolPosts() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-semibold text-ink">Пул</h1>
+      <h1 className="text-xl font-semibold text-ink">Запас постов</h1>
 
       <CreatePoolPostForm />
 
       <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Все посты пула</h2>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Все посты запаса</h2>
         {isLoading && <LoadingState />}
         {error && <ErrorState message={error.message} />}
         {data && data.length === 0 && (
-          <EmptyState message="Пул пуст — без постов здесь ad watchdog не сможет перекрыть рекламу." />
+          <EmptyState message="Запас пуст. Добавьте 3–5 «вечных» постов на тему — без них антиреклама не сможет перекрывать чужие посты, а расписание может пустеть." />
         )}
         {data && data.length > 0 && (
           <ul className="flex flex-col divide-y divide-border">

@@ -61,10 +61,10 @@ function GeneralSettingsCard() {
             />
           </div>
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-ink">Кулдаун пула, дней</span>
+            <span className="text-sm font-medium text-ink">Повтор запасного поста, дней</span>
             <p className="text-xs text-ink-muted">
-              Не публиковать один и тот же пост из пула повторно чаще, чем раз в столько
-              дней. 0 — отключить.
+              Один и тот же пост из запаса не выйдет повторно чаще, чем раз в столько
+              дней. 0 — без ограничения.
             </p>
             <Input
               type="number"

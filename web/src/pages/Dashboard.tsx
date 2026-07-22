@@ -1,6 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { alertsQuery, dashboardStatsQuery, engagementQuery, onboardingQuery } from "../api/queries";
+import {
+  alertsQuery,
+  dashboardStatsQuery,
+  engagementQuery,
+  onboardingQuery,
+  themesQuery,
+} from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
 import { plural } from "../lib/plural";
 import type { Alert, WorkerStatus } from "../types";
@@ -14,7 +20,7 @@ function EngagementCard() {
       <h2 className="mb-3 text-sm font-semibold text-ink">Как заходят посты</h2>
       {!data.metrics_configured && (
         <p className="text-sm text-ink-muted">
-          Сбор метрик публикаций не настроен. Назначьте аккаунт-читалку каналу на странице{" "}
+          Сбор просмотров не настроен. Назначьте аккаунт-читалку каналу на странице{" "}
           <Link to="/target-channels" className="text-accent underline underline-offset-2">
             «Каналы»
           </Link>{" "}
@@ -24,7 +30,7 @@ function EngagementCard() {
       )}
       {data.metrics_configured && data.publications.length === 0 && (
         <p className="text-sm text-ink-muted">
-          Метрики ещё не собраны — они появятся в течение получаса после первой публикации.
+          Просмотры ещё не собраны — они появятся в течение получаса после первой публикации.
         </p>
       )}
       {data.publications.length > 0 && (
@@ -77,38 +83,150 @@ function OnboardingCard() {
   );
 }
 
-function WorkersCard({ workers }: { workers: WorkerStatus[] }) {
+// Куда вести из алерта, чтобы проблему можно было чинить в один клик,
+// а не искать нужную страницу по тексту. Ключи — Alert.category с бэка
+// (interfaces/api/routers/alerts.py).
+const ALERT_ACTIONS: Record<string, { href: string; label: string }> = {
+  missing_bot: { href: "/bots", label: "Завести бота" },
+  missing_target_channel: { href: "/target-channels", label: "Добавить канал" },
+  theme_inactive: { href: "/review", label: "Проверить посты" },
+  pool_stagnant: { href: "/pool-posts", label: "Пополнить запас" },
+  source_no_output: { href: "/source-channels", label: "К источникам" },
+  pending_review_stale: { href: "/review", label: "К проверке" },
+};
+
+function AlertLine({ alert }: { alert: Alert }) {
+  const action = ALERT_ACTIONS[alert.category];
   return (
-    <Card>
-      <h2 className="mb-3 text-sm font-semibold text-ink">Фоновые процессы</h2>
-      <ul className="flex flex-col divide-y divide-border">
-        {workers.map((w) => (
-          <li key={w.worker_name} className="flex items-center justify-between py-2">
-            <span className="text-sm text-ink">{w.label}</span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-                w.is_alive ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
-              }`}
-            >
-              {w.is_alive ? "работает" : w.last_beat_at ? "не отвечает" : "не запущен"}
-            </span>
-          </li>
-        ))}
-      </ul>
+    <li
+      className={`flex items-center justify-between gap-3 rounded-lg p-3 text-sm ${
+        alert.severity === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted"
+      }`}
+    >
+      <span>{alert.message}</span>
+      {action && (
+        <Link
+          to={action.href}
+          className="shrink-0 rounded-lg border border-current px-2 py-1 text-xs font-medium hover:opacity-80"
+        >
+          {action.label}
+        </Link>
+      )}
+    </li>
+  );
+}
+
+/* «Сначала действия»: наверху только то, что требует внимания — критичные
+   алерты, сгруппированные по темам; некритичное сворачивается. Заменяет
+   прежнюю стену из всех алертов подряд. */
+function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }) {
+  const alerts = useQuery(alertsQuery());
+  const themes = useQuery(themesQuery());
+  const themeNameById = new Map(themes.data?.map((t) => [t.id, t.name]) ?? []);
+
+  if (alerts.isLoading) return <LoadingState />;
+  if (alerts.error) return <ErrorState message={alerts.error.message} />;
+  const data = alerts.data ?? [];
+
+  const critical = data.filter((a) => a.severity === "warning");
+  const minor = data.filter((a) => a.severity !== "warning");
+
+  // Группировка критичного по темам: одна тема с тремя проблемами — один блок,
+  // а не три строки вперемешку с другими темами.
+  const byTheme = new Map<string, Alert[]>();
+  const noTheme: Alert[] = [];
+  for (const a of critical) {
+    if (a.theme_id) {
+      const list = byTheme.get(a.theme_id) ?? [];
+      list.push(a);
+      byTheme.set(a.theme_id, list);
+    } else {
+      noTheme.push(a);
+    }
+  }
+
+  const nothingToDo = pendingReviewCount === 0 && critical.length === 0;
+
+  return (
+    <Card className={critical.length > 0 || pendingReviewCount > 0 ? "border-accent/40" : undefined}>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Требует внимания</h2>
+
+      {pendingReviewCount > 0 && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-accent-soft p-3">
+          <span className="text-sm text-ink">
+            <span className="font-semibold">{pendingReviewCount}</span>{" "}
+            {plural(pendingReviewCount, "пост ждёт", "поста ждут", "постов ждут")} вашего одобрения
+          </span>
+          <Link
+            to="/review"
+            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong"
+          >
+            К проверке
+          </Link>
+        </div>
+      )}
+
+      {nothingToDo && (
+        <p className="text-sm text-good">Всё в порядке — вмешательство не требуется.</p>
+      )}
+
+      {(byTheme.size > 0 || noTheme.length > 0) && (
+        <div className="flex flex-col gap-4">
+          {[...byTheme.entries()].map(([themeId, list]) => (
+            <div key={themeId}>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                {themeNameById.get(themeId) ?? "Тема"}
+              </h3>
+              <ul className="flex flex-col gap-2">
+                {list.map((a, i) => (
+                  <AlertLine key={i} alert={a} />
+                ))}
+              </ul>
+            </div>
+          ))}
+          {noTheme.length > 0 && (
+            <div>
+              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                Система
+              </h3>
+              <ul className="flex flex-col gap-2">
+                {noTheme.map((a, i) => (
+                  <AlertLine key={i} alert={a} />
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {minor.length > 0 && (
+        <details className="mt-3">
+          <summary className="cursor-pointer select-none text-xs text-ink-muted hover:text-ink">
+            Ещё {minor.length}{" "}
+            {plural(minor.length, "некритичное уведомление", "некритичных уведомления", "некритичных уведомлений")}
+          </summary>
+          <ul className="mt-2 flex flex-col gap-2">
+            {minor.map((a, i) => (
+              <AlertLine key={i} alert={a} />
+            ))}
+          </ul>
+        </details>
+      )}
     </Card>
   );
 }
 
+// Человеческие названия стадий конвейера вместо внутренних статусов.
 const STATUS_LABELS: Record<string, string> = {
-  new: "Новые",
-  scoring: "Дозревают",
-  selected: "Отобраны",
-  rewritten: "Готовы к паблишу",
-  pending_review: "На одобрении",
-  queued: "В очереди",
+  new: "Только собраны",
+  scoring: "Ждут оценку виральности",
+  selected: "Отобраны как лучшие",
+  rewritten: "Переписаны, ждут выхода",
+  pending_review: "Ждут вашего одобрения",
+  queued: "В очереди на публикацию",
   published: "Опубликованы",
   rejected: "Отклонены",
-  duplicate: "Дубли",
+  duplicate: "Отсеяны как повторы",
 };
 
 const STATUS_ORDER = [
@@ -123,32 +241,22 @@ const STATUS_ORDER = [
   "duplicate",
 ];
 
-function AlertsSection() {
-  const { data, isLoading, error } = useQuery(alertsQuery());
-
+function WorkersList({ workers }: { workers: WorkerStatus[] }) {
   return (
-    <Card>
-      <h2 className="mb-3 text-sm font-semibold text-ink">Алерты</h2>
-      {isLoading && <LoadingState />}
-      {error && <ErrorState message={error.message} />}
-      {data && data.length === 0 && (
-        <p className="text-sm text-good">Проблем не обнаружено — всё настроено и работает.</p>
-      )}
-      {data && data.length > 0 && (
-        <ul className="flex flex-col gap-2">
-          {data.map((alert: Alert, i: number) => (
-            <li
-              key={i}
-              className={`rounded-lg p-3 text-sm ${
-                alert.severity === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted"
-              }`}
-            >
-              {alert.message}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
+    <ul className="flex flex-col divide-y divide-border">
+      {workers.map((w) => (
+        <li key={w.worker_name} className="flex items-center justify-between py-2">
+          <span className="text-sm text-ink">{w.label}</span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+              w.is_alive ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+            }`}
+          >
+            {w.is_alive ? "работает" : w.last_beat_at ? "не отвечает" : "не запущен"}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -159,52 +267,38 @@ export function Dashboard() {
   if (error) return <ErrorState message={error.message} />;
   if (!data) return null;
 
+  // Нулевые стадии конвейера не показываем — сетка из девяти нулей ни о чём
+  // не говорит; когда данных нет вообще, вместо неё одна строка-подсказка.
+  const activeStages = STATUS_ORDER.filter((s) => (data.candidates_by_status[s] ?? 0) > 0);
+
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold text-ink">Дашборд</h1>
         <p className="mt-1 text-sm text-ink-muted">
-          Живая статистика работы системы: сколько тем и источников заведено, что на
-          разных стадиях обработки, сколько опубликовано.
+          Что требует вашего участия — сверху; сводка и служебное — ниже.
         </p>
       </div>
 
       <OnboardingCard />
 
-      <AlertsSection />
+      <AttentionSection pendingReviewCount={data.pending_review_count} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatTile label="Тем всего" value={data.themes_total} />
+        <StatTile label="Вышло сегодня" value={data.publications_today} />
+        <StatTile label="Вышло за всё время" value={data.publications_total} />
         <StatTile label="Активных тем" value={data.themes_active} />
-        <StatTile label="Источников всего" value={data.source_channels_total} />
-        <StatTile label="Источников без темы" value={data.source_channels_unassigned} />
-        <StatTile label="Публикаций всего" value={data.publications_total} />
-        <StatTile label="Публикаций сегодня" value={data.publications_today} />
-        <StatTile label="Пул: всего" value={data.pool_posts_total} />
-        <StatTile label="Пул: готово" value={data.pool_posts_ready} />
+        <StatTile label="Источников" value={data.source_channels_total} />
       </div>
-
-      {data.pending_review_count > 0 && (
-        <Card className="border-accent/40">
-          <p className="text-sm text-ink">
-            <span className="font-semibold">{data.pending_review_count}</span>{" "}
-            {plural(data.pending_review_count, "пост ждёт", "поста ждут", "постов ждут")} одобрения —{" "}
-            <Link to="/review" className="text-accent underline underline-offset-2">
-              перейти к проверке
-            </Link>
-            .
-          </p>
-        </Card>
-      )}
 
       {data.source_channels_unassigned > 0 && (
         <Card className="border-accent/40">
           <p className="text-sm text-ink">
             Есть <span className="font-semibold">{data.source_channels_unassigned}</span>{" "}
             {plural(data.source_channels_unassigned, "источник", "источника", "источников")} без
-            темы —{" "}
+            темы — их посты никуда не идут.{" "}
             <Link to="/source-channels" className="text-accent underline underline-offset-2">
-              распределите их
+              Распределите их
             </Link>{" "}
             по темам.
           </p>
@@ -212,24 +306,29 @@ export function Dashboard() {
       )}
 
       <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Кандидаты по стадиям пайплайна</h2>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {STATUS_ORDER.map((status) => (
-            <StatTile
-              key={status}
-              label={STATUS_LABELS[status] ?? status}
-              value={data.candidates_by_status[status] ?? 0}
-            />
-          ))}
-        </div>
+        <h2 className="mb-3 text-sm font-semibold text-ink">Посты в работе</h2>
+        {activeStages.length === 0 && (
+          <p className="text-sm text-ink-muted">
+            Пока пусто — как только читалки соберут первые посты из источников, здесь
+            появится их путь от сбора до публикации.
+          </p>
+        )}
+        {activeStages.length > 0 && (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+            {activeStages.map((status) => (
+              <StatTile
+                key={status}
+                label={STATUS_LABELS[status] ?? status}
+                value={data.candidates_by_status[status] ?? 0}
+              />
+            ))}
+          </div>
+        )}
       </Card>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-ink">Топ-5 источников по числу кандидатов</h2>
-        {data.top_sources.length === 0 && (
-          <p className="text-sm text-ink-muted">Пока нет ни одного кандидата ни от одного источника.</p>
-        )}
-        {data.top_sources.length > 0 && (
+      {data.top_sources.length > 0 && (
+        <Card>
+          <h2 className="mb-3 text-sm font-semibold text-ink">Самые плодовитые источники</h2>
           <ul className="flex flex-col divide-y divide-border">
             {data.top_sources.map((source) => (
               <li key={source.title} className="flex items-center justify-between py-2">
@@ -240,12 +339,26 @@ export function Dashboard() {
               </li>
             ))}
           </ul>
-        )}
-      </Card>
+        </Card>
+      )}
 
       <EngagementCard />
 
-      <WorkersCard workers={data.workers} />
+      <details>
+        <summary className="cursor-pointer select-none text-xs text-ink-muted hover:text-ink">
+          Служебное: фоновые процессы и запас постов
+        </summary>
+        <Card className="mt-2">
+          <WorkersList workers={data.workers} />
+          <p className="mt-3 text-xs text-ink-muted">
+            Запас постов: {data.pool_posts_ready} из {data.pool_posts_total} готово к выходу —{" "}
+            <Link to="/pool-posts" className="text-accent underline underline-offset-2">
+              управлять запасом
+            </Link>
+            .
+          </p>
+        </Card>
+      </details>
     </div>
   );
 }

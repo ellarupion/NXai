@@ -41,9 +41,13 @@ function CreateThemeForm() {
         <Textarea
           value={stylePrompt}
           onChange={(e) => setStylePrompt(e.target.value)}
-          placeholder="Стиль/персона по умолчанию для рерайта (необязательно)"
+          placeholder="Запасной стиль переписывания (необязательно)"
           rows={3}
         />
+        <p className="text-xs text-ink-muted">
+          Главный стиль задаётся в персоне бота темы (страница «Боты») — этот текст
+          используется, только пока персона у бота не заполнена.
+        </p>
         <Button type="submit" disabled={create.isPending} className="self-start">
           Создать
         </Button>
@@ -79,7 +83,7 @@ function ThemeRow({ theme }: { theme: Theme }) {
         <Textarea
           value={stylePrompt}
           onChange={(e) => setStylePrompt(e.target.value)}
-          placeholder="Стиль/персона по умолчанию"
+          placeholder="Запасной стиль переписывания (используется, пока персона бота пуста)"
           rows={3}
         />
         <div className="flex gap-2">
@@ -133,14 +137,17 @@ function ThemeRow({ theme }: { theme: Theme }) {
       {theme.default_style_prompt && (
         <p className="text-sm text-ink-muted">{theme.default_style_prompt}</p>
       )}
-      <label className="flex items-center gap-2 text-xs text-ink-muted">
+      <label
+        className="flex items-center gap-2 text-xs text-ink-muted"
+        title="Раз в сутки ИИ собирает из лучших постов дня один пост-дайджест и кладёт его в Проверку — в канал он уйдёт только после вашего одобрения"
+      >
         <input
           type="checkbox"
           checked={theme.digest_enabled}
           onChange={(e) => update.mutate({ digest_enabled: e.target.checked })}
           disabled={update.isPending}
         />
-        <span>AI-дайджест раз в сутки в</span>
+        <span>Дайджест дня раз в сутки в</span>
         <select
           value={theme.digest_hour}
           onChange={(e) => update.mutate({ digest_hour: Number(e.target.value) })}

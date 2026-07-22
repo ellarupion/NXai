@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { pendingReviewQuery, themesQuery } from "../api/queries";
@@ -44,10 +44,10 @@ function GenerateForm() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold text-ink">Сделать посты</h2>
       <p className="mb-3 text-sm text-ink-muted">
-        Принудительный внеочередной прогон пайплайна на тему: докачивает историю
-        источников, если свежих постов не хватает, минует обычное ожидание метрик,
-        дедуп и рерайт — не ждёт штатных 30 мин/2 ч/6 ч. Результат уходит сюда же,
-        в очередь на одобрение, а не сразу в автопаблиш.
+        Не хотите ждать, пока система сама отберёт лучшее — сделайте посты прямо
+        сейчас: возьмём свежие посты источников темы, перепишем в стиле вашего
+        бота и положим сюда на одобрение. Без вашего «Одобрить» в канал ничего
+        не уйдёт.
       </p>
       <form
         className="flex flex-wrap gap-2"
@@ -174,8 +174,11 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
           )}
         </div>
         {post.score !== null && (
-          <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted whitespace-nowrap">
-            score {post.score.toFixed(2)}
+          <span
+            title="Оценка виральности исходного поста: как быстро он набирал просмотры и пересылки у конкурента. Чем выше — тем «залётнее» тема."
+            className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted whitespace-nowrap"
+          >
+            виральность {post.score.toFixed(2)}
           </span>
         )}
       </div>
@@ -253,6 +256,41 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
 
 export function Review() {
   const { data, isLoading, error } = useQuery(pendingReviewQuery());
+  const queryClient = useQueryClient();
+  const [hotkeyError, setHotkeyError] = useState<string | null>(null);
+  // В ref, а не в замыкании: слушатель клавиатуры вешается один раз, а верхний
+  // пост меняется после каждого одобрения — ref всегда указывает на актуальный.
+  const topPostRef = useRef<PendingReviewPost | null>(null);
+  topPostRef.current = data?.[0] ?? null;
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Не перехватываем печать в полях форм.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const approveKey = key === "a" || key === "ф";
+      const rejectKey = key === "d" || key === "в";
+      if (!approveKey && !rejectKey) return;
+      const post = topPostRef.current;
+      if (!post || busyRef.current) return;
+      busyRef.current = true;
+      api
+        .post(`/candidates/${post.candidate_id}/${approveKey ? "approve" : "reject"}`)
+        .then(() => setHotkeyError(null))
+        .catch((err) =>
+          setHotkeyError(err instanceof ApiError ? err.message : "Не удалось обработать пост"),
+        )
+        .finally(() => {
+          busyRef.current = false;
+          queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+        });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [queryClient]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -261,7 +299,16 @@ export function Review() {
       <GenerateForm />
 
       <div className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-ink">На одобрении</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-ink">На одобрении</h2>
+          {data && data.length > 0 && (
+            <span className="text-xs text-ink-muted">
+              Клавиши: <kbd className="rounded border border-border px-1">A</kbd> — одобрить,{" "}
+              <kbd className="rounded border border-border px-1">D</kbd> — отклонить верхний пост
+            </span>
+          )}
+        </div>
+        {hotkeyError && <p className="text-xs text-bad">{hotkeyError}</p>}
         {isLoading && <LoadingState />}
         {error && <ErrorState message={error.message} />}
         {data && data.length === 0 && (

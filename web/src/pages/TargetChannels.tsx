@@ -228,15 +228,18 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
           </Button>
         )}
       </form>
-      <label className="flex items-center gap-2 text-xs text-ink-muted">
-        <span className="whitespace-nowrap">Метрики читает:</span>
+      <label
+        className="flex items-center gap-2 text-xs text-ink-muted"
+        title="Выбранный аккаунт-читалка раз в полчаса снимает просмотры и пересылки ваших публикаций. Аккаунт должен состоять в этом канале."
+      >
+        <span className="whitespace-nowrap">Просмотры собирает:</span>
         <Select
           value={targetChannel.metrics_session_id ?? ""}
           onChange={(e) => setMetricsSession.mutate(e.target.value || null)}
           disabled={setMetricsSession.isPending}
           className="flex-1"
         >
-          <option value="">— не собирать —</option>
+          <option value="">— никто (просмотры не собираются) —</option>
           {sessions.data?.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
