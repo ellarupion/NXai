@@ -7,7 +7,9 @@ import type { TelethonLoginStartResult, TelethonLoginStepResult, TelethonSession
 
 type WizardStep = "phone" | "code" | "password";
 
-function LoginWizard() {
+// Экспортируется: онбординг-визард (/setup) встраивает эту же форму
+// подключения аккаунта, чтобы не дублировать трёхшаговый флоу логина.
+export function LoginWizard() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<WizardStep>("phone");
   const [attemptId, setAttemptId] = useState<string | null>(null);

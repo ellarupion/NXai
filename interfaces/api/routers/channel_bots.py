@@ -95,6 +95,11 @@ class ChannelBotUpdate(BaseModel):
     theme_id: UUID | None = None
 
 
+class BotCheckOut(BaseModel):
+    ok: bool
+    detail: str
+
+
 class ExtractStyleRequest(BaseModel):
     reference_posts: list[str]
 
@@ -181,6 +186,30 @@ async def update_channel_bot(
         await session.rollback()
         raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)
+
+
+@router.post("/{channel_bot_id}/check", response_model=BotCheckOut)
+async def check_channel_bot(
+    channel_bot_id: UUID, session: AsyncSession = Depends(get_db)
+) -> BotCheckOut:
+    """Живая проверка токена через Bot API (getMe) — кнопка «Проверить связь»
+    в панели. Отказ Bot API возвращаем как ok=False, а не HTTP-ошибкой: мёртвый
+    токен — штатный результат проверки, а не сбой самой ручки."""
+    bot = await session.get(ChannelBot, channel_bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="ChannelBot not found")
+    if not bot.bot_token:
+        return BotCheckOut(ok=False, detail="Токен не задан")
+    from aiogram import Bot as AiogramBot
+
+    tg = AiogramBot(token=bot.bot_token)
+    try:
+        me = await tg.get_me()
+        return BotCheckOut(ok=True, detail=f"На связи: @{me.username}")
+    except Exception as exc:  # noqa: BLE001 - любой отказ Bot API = «не на связи»
+        return BotCheckOut(ok=False, detail=f"Бот не отвечает: {exc}")
+    finally:
+        await tg.session.close()
 
 
 @router.delete("/{channel_bot_id}", status_code=204)

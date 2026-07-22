@@ -49,36 +49,31 @@ function EngagementCard() {
   );
 }
 
+/* Пока система не настроена до конца, дашборд не разворачивает чеклист, а
+   ведёт в визард /setup — там те же шаги, но с формами и проверками на месте. */
 function OnboardingCard() {
   const { data } = useQuery(onboardingQuery());
   if (!data || data.all_done) return null;
 
+  const doneCount = data.steps.filter((s) => s.done).length;
+
   return (
     <Card className="border-accent/40">
-      <h2 className="mb-1 text-sm font-semibold text-ink">С чего начать</h2>
-      <p className="mb-3 text-xs text-ink-muted">
-        Чтобы система заработала, пройдите эти шаги по порядку.
-      </p>
-      <ol className="flex flex-col gap-2">
-        {data.steps.map((step, i) => (
-          <li key={step.key} className="flex items-center gap-3">
-            <span
-              className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                step.done ? "bg-good-soft text-good" : "bg-surface-2 text-ink-muted"
-              }`}
-            >
-              {step.done ? "✓" : i + 1}
-            </span>
-            {step.done ? (
-              <span className="text-sm text-ink-muted line-through">{step.label}</span>
-            ) : (
-              <Link to={step.href} className="text-sm text-accent underline underline-offset-2">
-                {step.label}
-              </Link>
-            )}
-          </li>
-        ))}
-      </ol>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">Система ещё не настроена до конца</h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            Готово {doneCount} из {data.steps.length} шагов. Визард проведёт по
+            оставшимся и проверит каждый.
+          </p>
+        </div>
+        <Link
+          to="/setup"
+          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong"
+        >
+          Продолжить настройку (шаг {doneCount + 1} из {data.steps.length})
+        </Link>
+      </div>
     </Card>
   );
 }

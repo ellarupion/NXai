@@ -135,6 +135,17 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
   const [editingPersona, setEditingPersona] = useState(false);
   const [persona, setPersona] = useState(bot.persona_prompt);
   const [error, setError] = useState<string | null>(null);
+  const [checkResult, setCheckResult] = useState<{ ok: boolean; detail: string } | null>(null);
+
+  const check = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; detail: string }>(`/channel-bots/${bot.id}/check`),
+    onSuccess: (data) => setCheckResult(data),
+    onError: (err) =>
+      setCheckResult({
+        ok: false,
+        detail: err instanceof ApiError ? err.message : "Не удалось выполнить проверку",
+      }),
+  });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
 
@@ -182,6 +193,14 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
           <StatusBadge active={bot.is_active} />
           <Button
             variant="secondary"
+            disabled={check.isPending}
+            onClick={() => check.mutate()}
+            title="Живая проверка токена через Telegram (getMe)"
+          >
+            {check.isPending ? "Проверяю…" : "Проверить связь"}
+          </Button>
+          <Button
+            variant="secondary"
             disabled={busy}
             onClick={() => update.mutate({ is_active: !bot.is_active })}
           >
@@ -198,6 +217,12 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
           </Button>
         </div>
       </div>
+
+      {checkResult && (
+        <p className={`text-xs ${checkResult.ok ? "text-good" : "text-bad"}`}>
+          {checkResult.detail}
+        </p>
+      )}
 
       {bot.role !== "admin" && (
         <>
