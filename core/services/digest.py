@@ -21,6 +21,7 @@ from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus
 from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
+from core.services.persona import build_persona_prompt
 
 logger = get_logger(__name__)
 
@@ -106,9 +107,9 @@ async def build_digest(
 
 async def _persona_prompt(session: AsyncSession, theme_id: UUID) -> str:
     result = await session.execute(
-        select(ChannelBot.persona_prompt).where(
+        select(ChannelBot.persona_config, ChannelBot.persona_prompt).where(
             ChannelBot.theme_id == theme_id, ChannelBot.role == BotRole.THEME
         )
     )
     row = result.first()
-    return row[0] if row else ""
+    return build_persona_prompt(row[0], row[1]) if row else ""

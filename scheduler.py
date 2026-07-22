@@ -47,6 +47,7 @@ from core.services.heartbeat import WORKER_SCHEDULER, record_heartbeat
 from core.services.media import download_candidate_photos
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
+from core.services.persona import build_persona_prompt
 from core.services.rewrite import RewriteService
 from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
@@ -248,7 +249,11 @@ async def dedup_and_rewrite_job() -> None:
                     )
                 )
                 channel_bot = channel_bot_result.scalar_one_or_none()
-                persona_prompt = channel_bot.persona_prompt if channel_bot else ""
+                persona_prompt = (
+                    build_persona_prompt(channel_bot.persona_config, channel_bot.persona_prompt)
+                    if channel_bot
+                    else ""
+                )
                 await rewrite.generate(candidate_id, persona_prompt)
                 # Премодерация темы: рерайт не идёт в автопаблиш напрямую, а
                 # ждёт одобрения в Проверке — тот же переход, что делает

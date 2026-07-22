@@ -27,6 +27,7 @@ from core.models.enums import BotRole, CandidatePostStatus
 from core.models.source_channel import SourceChannel
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
+from core.services.persona import build_persona_prompt
 from core.services.rewrite import RewriteService
 
 logger = get_logger(__name__)
@@ -169,9 +170,9 @@ class ForceGenerateService:
 
     async def _persona_prompt(self, theme_id: UUID) -> str:
         result = await self.session.execute(
-            select(ChannelBot.persona_prompt).where(
+            select(ChannelBot.persona_config, ChannelBot.persona_prompt).where(
                 ChannelBot.theme_id == theme_id, ChannelBot.role == BotRole.THEME
             )
         )
         row = result.first()
-        return row[0] if row else ""
+        return build_persona_prompt(row[0], row[1]) if row else ""

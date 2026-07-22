@@ -72,6 +72,12 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     role: Mapped[BotRole] = mapped_column(default=BotRole.THEME, index=True)
     bot_token: Mapped[str] = mapped_column(EncryptedText)
     persona_prompt: Mapped[str] = mapped_column(Text, default="")
+    # Конструктор персоны (UX-этап 4): структурные настройки стиля — тон,
+    # длина, эмодзи, обращение, смелость рерайта, стоп-слова, примеры
+    # «пиши так / так не пиши». Компилируются в системный промпт в
+    # core/services/persona.py:build_persona_prompt; persona_prompt остаётся
+    # полем «особые указания» и фолбэком для ботов без конфига.
+    persona_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     cadence: Mapped[dict] = mapped_column(JSONB, default=DEFAULT_CADENCE)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     notify_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

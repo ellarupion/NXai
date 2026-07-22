@@ -14,6 +14,7 @@ import {
   StatusBadge,
   Textarea,
 } from "../components/ui";
+import { PersonaEditor, type PersonaValue } from "../components/PersonaEditor";
 import type { BotRole, Cadence, ChannelBot } from "../types";
 
 const DEFAULT_CADENCE: Cadence = {
@@ -129,11 +130,35 @@ function CreateBotForm() {
   );
 }
 
+const TONE_LABELS: Record<string, string> = {
+  brash: "дерзкий блогер",
+  expert: "спокойный эксперт",
+  friendly: "дружеский",
+  news: "новостной",
+  custom: "свой тон",
+};
+
+function personaSummary(bot: ChannelBot): string {
+  const c = bot.persona_config ?? {};
+  const bits: string[] = [];
+  if (c.tone) bits.push(TONE_LABELS[c.tone] ?? c.tone);
+  if (c.length === "shorter") bits.push("короче исходника");
+  if (c.length === "longer") bits.push("развёрнутее");
+  if (c.emoji === "none") bits.push("без эмодзи");
+  if (c.emoji === "many") bits.push("много эмодзи");
+  if ((c.examples_good ?? []).length > 0) bits.push(`примеров: ${(c.examples_good ?? []).length}`);
+  const head = bits.length > 0 ? `Стиль: ${bits.join(", ")}. ` : "";
+  return (head + (bot.persona_prompt || "")).trim();
+}
+
 function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null }) {
   const queryClient = useQueryClient();
   const [newToken, setNewToken] = useState("");
   const [editingPersona, setEditingPersona] = useState(false);
-  const [persona, setPersona] = useState(bot.persona_prompt);
+  const [persona, setPersona] = useState<PersonaValue>({
+    config: bot.persona_config ?? {},
+    custom: bot.persona_prompt,
+  });
   const [error, setError] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<{ ok: boolean; detail: string } | null>(null);
 
@@ -150,8 +175,11 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
 
   const update = useMutation({
-    mutationFn: (payload: Partial<Pick<ChannelBot, "is_active" | "persona_prompt">> & { bot_token?: string }) =>
-      api.put<ChannelBot>(`/channel-bots/${bot.id}`, payload),
+    mutationFn: (
+      payload: Partial<Pick<ChannelBot, "is_active" | "persona_prompt" | "persona_config">> & {
+        bot_token?: string;
+      },
+    ) => api.put<ChannelBot>(`/channel-bots/${bot.id}`, payload),
     onSuccess: () => {
       setError(null);
       setNewToken("");
@@ -227,21 +255,22 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
       {bot.role !== "admin" && (
         <>
           {editingPersona ? (
-            <div className="flex flex-col gap-2">
-              <Textarea
-                value={persona}
-                onChange={(e) => setPersona(e.target.value)}
-                placeholder="Персона/стиль для рерайта"
-                rows={4}
-              />
+            <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+              <h3 className="text-xs font-semibold text-ink">Конструктор персоны</h3>
+              <PersonaEditor value={persona} onChange={setPersona} botId={bot.id} />
               <div className="flex gap-2">
-                <Button onClick={() => update.mutate({ persona_prompt: persona })} disabled={busy}>
-                  Сохранить
+                <Button
+                  onClick={() =>
+                    update.mutate({ persona_prompt: persona.custom, persona_config: persona.config })
+                  }
+                  disabled={busy}
+                >
+                  Сохранить персону
                 </Button>
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    setPersona(bot.persona_prompt);
+                    setPersona({ config: bot.persona_config ?? {}, custom: bot.persona_prompt });
                     setEditingPersona(false);
                     setError(null);
                   }}
@@ -254,17 +283,17 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
           ) : (
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm text-ink-muted">
-                {bot.persona_prompt || "Персона не задана."}
+                {personaSummary(bot) || "Персона не задана — настройте стиль, чтобы посты писались вашим голосом."}
               </p>
               <button
                 type="button"
                 onClick={() => {
-                  setPersona(bot.persona_prompt);
+                  setPersona({ config: bot.persona_config ?? {}, custom: bot.persona_prompt });
                   setEditingPersona(true);
                 }}
                 className="shrink-0 text-xs text-ink-muted underline decoration-dotted hover:text-ink"
               >
-                Изменить персону
+                Настроить персону
               </button>
             </div>
           )}
@@ -304,73 +333,6 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
   );
 }
 
-function StyleExtractorCard() {
-  const [refs, setRefs] = useState("");
-  const [suggestion, setSuggestion] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const extract = useMutation({
-    mutationFn: () => {
-      const posts = refs.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-      return api.post<{ suggested_persona: string }>("/channel-bots/extract-style", {
-        reference_posts: posts,
-      });
-    },
-    onSuccess: (data) => {
-      setError(null);
-      setSuggestion(data.suggested_persona);
-    },
-    onError: (err) => {
-      setSuggestion(null);
-      setError(err instanceof ApiError ? err.message : "Не удалось выучить стиль");
-    },
-  });
-
-  return (
-    <Card>
-      <h2 className="mb-1 text-sm font-semibold text-ink">Выучить стиль по постам</h2>
-      <p className="mb-3 text-sm text-ink-muted">
-        Вставьте несколько реальных постов канала (по одному, разделяя пустой строкой) —
-        ИИ опишет его голос и предложит готовую персону. Скопируйте её в поле «Персона»
-        нужного бота выше.
-      </p>
-      <form
-        className="flex flex-col gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setError(null);
-          extract.mutate();
-        }}
-      >
-        <Textarea
-          value={refs}
-          onChange={(e) => setRefs(e.target.value)}
-          placeholder={"Пост 1…\n\nПост 2…\n\nПост 3…"}
-          rows={6}
-        />
-        <Button type="submit" disabled={extract.isPending || !refs.trim()} className="self-start">
-          {extract.isPending ? "Анализирую…" : "Выучить стиль"}
-        </Button>
-      </form>
-      {error && <p className="mt-2 text-sm text-bad">{error}</p>}
-      {suggestion && (
-        <div className="mt-3 flex flex-col gap-2">
-          <span className="text-xs font-medium text-ink">Предлагаемая персона:</span>
-          <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-sm text-ink">{suggestion}</p>
-          <Button
-            type="button"
-            variant="secondary"
-            className="self-start"
-            onClick={() => navigator.clipboard?.writeText(suggestion)}
-          >
-            Скопировать
-          </Button>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export function Bots() {
   const bots = useQuery(channelBotsQuery());
   const themes = useQuery(themesQuery());
@@ -392,8 +354,6 @@ export function Bots() {
       </Callout>
 
       <CreateBotForm />
-
-      <StyleExtractorCard />
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-ink">Все боты</h2>

@@ -10,12 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.llm.client import LLMClient
+from core.llm.client import REWRITE_MODEL, LLMClient
+from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
+from core.models.source_channel import SourceChannel
 from core.models.enums import AuditAction, BotRole
 from core.services.audit import record_audit
+from core.services.rewrite import ANTI_COPY_INSTRUCTIONS
 from core.services.effective_settings import get_effective_settings
-from core.services.style_extractor import StyleExtractorError, extract_style
+from core.services.persona import build_persona_prompt
+from core.services.style_extractor import StyleExtractorError, extract_style_structured
 from interfaces.api.auth import require_superadmin
 from interfaces.api.deps import get_db
 
@@ -42,6 +46,7 @@ class ChannelBotOut(BaseModel):
     theme_id: UUID | None
     role: BotRole
     persona_prompt: str
+    persona_config: dict
     cadence: dict
     is_active: bool
     token_set: bool
@@ -59,6 +64,7 @@ class ChannelBotOut(BaseModel):
             theme_id=bot.theme_id,
             role=bot.role,
             persona_prompt=bot.persona_prompt,
+            persona_config=bot.persona_config,
             cadence=bot.cadence,
             is_active=bot.is_active,
             token_set=bool(bot.bot_token),
@@ -71,6 +77,7 @@ class ChannelBotCreate(BaseModel):
     role: BotRole = BotRole.THEME
     bot_token: str
     persona_prompt: str = ""
+    persona_config: dict = {}
     cadence: dict = DEFAULT_CADENCE
 
     @model_validator(mode="after")
@@ -90,6 +97,7 @@ class ChannelBotUpdate(BaseModel):
 
     bot_token: str | None = None
     persona_prompt: str | None = None
+    persona_config: dict | None = None
     cadence: dict | None = None
     is_active: bool | None = None
     theme_id: UUID | None = None
@@ -106,6 +114,23 @@ class ExtractStyleRequest(BaseModel):
 
 class ExtractStyleResponse(BaseModel):
     suggested_persona: str
+    # Частичный persona_config для предзаполнения конструктора персоны
+    # (tone/tone_custom/length/emoji/address + custom).
+    suggested_config: dict = {}
+
+
+class PreviewRewriteRequest(BaseModel):
+    """Песочница: прогнать рерайт с НЕсохранёнными настройками конструктора.
+    text не задан — берём последний реальный кандидат-пост темы бота."""
+
+    persona_config: dict | None = None
+    persona_prompt: str | None = None
+    text: str | None = None
+
+
+class PreviewRewriteOut(BaseModel):
+    original: str
+    rewritten: str
 
 
 @router.get("", response_model=list[ChannelBotOut])
@@ -122,11 +147,16 @@ async def extract_style_endpoint(
     persona-промпт. Ничего не сохраняет — оператор вставляет результат в
     персону бота сам."""
     settings = await get_effective_settings(session)
+    llm = LLMClient(settings)
     try:
-        suggested = await extract_style(LLMClient(settings), payload.reference_posts)
+        config = await extract_style_structured(llm, payload.reference_posts)
     except StyleExtractorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return ExtractStyleResponse(suggested_persona=suggested)
+    # Текстовое поле оставляем для обратной совместимости и как читаемое
+    # резюме: это custom из структуры (или весь ответ при сбое парсинга).
+    return ExtractStyleResponse(
+        suggested_persona=config.get("custom", ""), suggested_config=config
+    )
 
 
 @router.post("", response_model=ChannelBotOut)
@@ -138,6 +168,7 @@ async def create_channel_bot(
         role=payload.role,
         bot_token=payload.bot_token,
         persona_prompt=payload.persona_prompt,
+        persona_config=payload.persona_config,
         cadence=payload.cadence,
     )
     session.add(bot)
@@ -166,6 +197,8 @@ async def update_channel_bot(
         await record_audit(session, AuditAction.BOT_TOKEN_CHANGE, "channel_bot", str(bot.id))
     if payload.persona_prompt is not None:
         bot.persona_prompt = payload.persona_prompt
+    if payload.persona_config is not None:
+        bot.persona_config = payload.persona_config
     if payload.cadence is not None:
         bot.cadence = payload.cadence
     if payload.is_active is not None:
@@ -186,6 +219,52 @@ async def update_channel_bot(
         await session.rollback()
         raise HTTPException(status_code=400, detail=_uniqueness_message(exc)) from exc
     return ChannelBotOut.from_model(bot)
+
+
+@router.post("/{channel_bot_id}/preview-rewrite", response_model=PreviewRewriteOut)
+async def preview_rewrite(
+    channel_bot_id: UUID, payload: PreviewRewriteRequest, session: AsyncSession = Depends(get_db)
+) -> PreviewRewriteOut:
+    """Песочница конструктора персоны: гоняет реальный рерайт с переданными
+    (возможно, ещё не сохранёнными) настройками и возвращает до/после.
+    Ничего не пишет в БД — чистый dry-run."""
+    bot = await session.get(ChannelBot, channel_bot_id)
+    if bot is None:
+        raise HTTPException(status_code=404, detail="ChannelBot not found")
+
+    original = (payload.text or "").strip()
+    if not original:
+        if bot.theme_id is None:
+            raise HTTPException(status_code=400, detail="У admin-бота нет темы — вставьте текст для проверки сами")
+        row = await session.execute(
+            select(CandidatePost.raw_text)
+            .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
+            .where(SourceChannel.theme_id == bot.theme_id)
+            .order_by(CandidatePost.first_seen_at.desc())
+            .limit(1)
+        )
+        first = row.first()
+        if first is None:
+            raise HTTPException(
+                status_code=400,
+                detail="У темы ещё нет собранных постов — вставьте текст для проверки сами",
+            )
+        original = first[0]
+
+    config = payload.persona_config if payload.persona_config is not None else bot.persona_config
+    custom = payload.persona_prompt if payload.persona_prompt is not None else bot.persona_prompt
+    persona = build_persona_prompt(config, custom)
+
+    settings = await get_effective_settings(session)
+    llm = LLMClient(settings)
+    system_prompt = f"{persona}\n\n{ANTI_COPY_INSTRUCTIONS}" if persona else ANTI_COPY_INSTRUCTIONS
+    try:
+        completion = await llm.complete(
+            model=REWRITE_MODEL, system_prompt=system_prompt, user_prompt=original
+        )
+    except Exception as exc:  # noqa: BLE001 - ошибка LLM уходит оператору как текст
+        raise HTTPException(status_code=400, detail=f"Рерайт не удался: {exc}") from exc
+    return PreviewRewriteOut(original=original, rewritten=completion.text)
 
 
 @router.post("/{channel_bot_id}/check", response_model=BotCheckOut)

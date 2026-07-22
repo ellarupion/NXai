@@ -91,11 +91,25 @@ export interface Cadence {
 
 export type BotRole = "theme" | "admin";
 
+export interface PersonaConfig {
+  tone?: "brash" | "expert" | "friendly" | "news" | "custom";
+  tone_custom?: string;
+  length?: "shorter" | "same" | "longer";
+  emoji?: "none" | "few" | "many";
+  address?: "ty" | "vy" | "neutral";
+  boldness?: number;
+  stop_words?: string[];
+  hashtags?: string;
+  examples_good?: string[];
+  examples_bad?: string[];
+}
+
 export interface ChannelBot {
   id: string;
   theme_id: string | null;
   role: BotRole;
   persona_prompt: string;
+  persona_config: PersonaConfig;
   cadence: Cadence;
   is_active: boolean;
   token_set: boolean;
