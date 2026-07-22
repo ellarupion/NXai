@@ -46,7 +46,7 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="truncate font-medium text-ink">{channel.title}</p>
@@ -63,7 +63,7 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
             {formatScanned(channel.last_scanned_at)}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <AssignSessionCell channel={channel} />
           <AssignThemeCell channel={channel} />
         </div>
@@ -128,12 +128,12 @@ function AssignThemeCell({ channel }: { channel: SourceChannel }) {
   });
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-stretch gap-1 sm:items-end">
       <Select
         value={channel.theme_id ?? ""}
         disabled={assign.isPending || themes.isLoading}
         onChange={(e) => assign.mutate(e.target.value === "" ? null : e.target.value)}
-        className="min-w-[10rem]"
+        className="w-full sm:w-auto sm:min-w-[10rem]"
       >
         <option value="">— без темы —</option>
         {themes.data?.map((theme) => (
@@ -165,12 +165,12 @@ function AssignSessionCell({ channel }: { channel: SourceChannel }) {
   });
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-stretch gap-1 sm:items-end">
       <Select
         value={channel.ingest_session_id ?? ""}
         disabled={assign.isPending || sessions.isLoading}
         onChange={(e) => assign.mutate(e.target.value === "" ? null : e.target.value)}
-        className="min-w-[10rem]"
+        className="w-full sm:w-auto sm:min-w-[10rem]"
       >
         <option value="">— читалка не назначена —</option>
         {sessions.data?.map((s) => (
@@ -233,7 +233,7 @@ function AddSourceChannelForm() {
           placeholder="@username или t.me/ссылка чужого канала"
           required
         />
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Select
             value={ingestSessionId}
             onChange={(e) => setIngestSessionId(e.target.value)}

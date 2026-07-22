@@ -114,7 +114,7 @@ function ThemeRow({ theme }: { theme: Theme }) {
 
   return (
     <li className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Link
           to={`/themes/${theme.id}`}
           className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-accent"
@@ -145,7 +145,7 @@ function ThemeRow({ theme }: { theme: Theme }) {
         <p className="text-sm text-ink-muted">{theme.default_style_prompt}</p>
       )}
       <label
-        className="flex items-center gap-2 text-xs text-ink-muted"
+        className="flex flex-wrap items-center gap-2 text-xs text-ink-muted"
         title="Раз в сутки ИИ собирает из лучших постов дня один пост-дайджест и кладёт его в Проверку — в канал он уйдёт только после вашего одобрения"
       >
         <input

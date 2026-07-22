@@ -71,7 +71,7 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-accent ${props.className ?? ""}`}
+      className={`min-w-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-accent ${props.className ?? ""}`}
     />
   );
 }
@@ -80,7 +80,7 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-accent ${props.className ?? ""}`}
+      className={`min-w-0 max-w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-ink outline-none focus:border-accent ${props.className ?? ""}`}
     />
   );
 }

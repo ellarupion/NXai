@@ -96,7 +96,7 @@ function AlertLine({ alert }: { alert: Alert }) {
   const action = ALERT_ACTIONS[alert.category];
   return (
     <li
-      className={`flex items-center justify-between gap-3 rounded-lg p-3 text-sm ${
+      className={`flex flex-wrap items-center justify-between gap-2 rounded-lg p-3 text-sm ${
         alert.severity === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted"
       }`}
     >
@@ -149,7 +149,7 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
       <h2 className="mb-3 text-sm font-semibold text-ink">Требует внимания</h2>
 
       {pendingReviewCount > 0 && (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg bg-accent-soft p-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-accent-soft p-3">
           <span className="text-sm text-ink">
             <span className="font-semibold">{pendingReviewCount}</span>{" "}
             {plural(pendingReviewCount, "пост ждёт", "поста ждут", "постов ждут")} вашего одобрения

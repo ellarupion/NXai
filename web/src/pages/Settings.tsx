@@ -142,7 +142,7 @@ function SecretField({
         <SourceBadge source={status} />
       </div>
       <form
-        className="flex gap-2"
+        className="flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           if (!value) return;

@@ -57,7 +57,7 @@ function GenerateForm() {
           generate.mutate();
         }}
       >
-        <Select value={themeId} onChange={(e) => setThemeId(e.target.value)} required className="flex-1">
+        <Select value={themeId} onChange={(e) => setThemeId(e.target.value)} required className="w-full sm:w-auto sm:flex-1">
           <option value="">— выберите тему —</option>
           {themes.data?.map((theme) => (
             <option key={theme.id} value={theme.id}>

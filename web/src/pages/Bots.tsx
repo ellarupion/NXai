@@ -75,7 +75,7 @@ function CreateBotForm() {
           create.mutate();
         }}
       >
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Select value={role} onChange={(e) => setRole(e.target.value as BotRole)} className="flex-1">
             <option value="theme">Тематический бот</option>
             <option value="admin">Admin-бот (агрегирующий)</option>
@@ -291,8 +291,8 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <span className="font-medium text-ink">{label}</span>
           <span className="ml-2 text-xs text-ink-muted">{bot.token_set ? "токен задан" : "токен не задан"}</span>
           {bot.role === "admin" && (
@@ -305,7 +305,7 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge active={bot.is_active} />
           <Button
             variant="secondary"

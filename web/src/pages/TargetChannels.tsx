@@ -189,14 +189,14 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{targetChannel.title}</p>
           <p className="truncate text-xs text-ink-muted">
             {themeName} · {targetChannel.tg_chat_id}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge active={targetChannel.is_active} />
           <Button
             variant="secondary"
@@ -229,7 +229,7 @@ function TargetChannelRow({ targetChannel, themeName }: { targetChannel: TargetC
         )}
       </form>
       <label
-        className="flex items-center gap-2 text-xs text-ink-muted"
+        className="flex flex-col items-stretch gap-1 text-xs text-ink-muted sm:flex-row sm:items-center sm:gap-2"
         title="Выбранный аккаунт-читалка раз в полчаса снимает просмотры и пересылки ваших публикаций. Аккаунт должен состоять в этом канале."
       >
         <span className="whitespace-nowrap">Просмотры собирает:</span>

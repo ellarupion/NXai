@@ -202,9 +202,9 @@ function SessionRow({ telethonSession }: { telethonSession: TelethonSession }) {
 
   return (
     <li className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <form
-          className="flex flex-1 gap-2"
+          className="flex min-w-0 flex-1 gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (label === telethonSession.label) return;
@@ -219,7 +219,7 @@ function SessionRow({ telethonSession }: { telethonSession: TelethonSession }) {
             </Button>
           )}
         </form>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge active={telethonSession.is_active} />
           <Button
             variant="secondary"
