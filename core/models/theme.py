@@ -29,6 +29,12 @@ class Theme(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     digest_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     digest_hour: Mapped[int] = mapped_column(Integer, default=9, server_default="9")
 
+    # Премодерация (UX-этап 3): рерайты темы идут в Проверку (PENDING_REVIEW),
+    # автопаблиш публикует только одобренное. default=True — новые темы
+    # премодерируемые (безопасный дефолт); server_default="false" — уже
+    # существующие темы сохраняют прежнее поведение прямого автопаблиша.
+    premoderation: Mapped[bool] = mapped_column(Boolean, default=True, server_default="false")
+
     source_channels: Mapped[list["SourceChannel"]] = relationship(back_populates="theme")
     target_channels: Mapped[list["TargetChannel"]] = relationship(back_populates="theme")
     bots: Mapped[list["ChannelBot"]] = relationship(back_populates="theme")

@@ -8,6 +8,21 @@ export interface Theme {
   is_active: boolean;
   digest_enabled: boolean;
   digest_hour: number;
+  premoderation: boolean;
+}
+
+export type ThemeHealthStatus = "ok" | "warn" | "crit";
+
+export interface ThemeHealthStage {
+  key: string;
+  label: string;
+  status: ThemeHealthStatus;
+  value: string;
+  hint: string | null;
+}
+
+export interface ThemeHealth {
+  stages: ThemeHealthStage[];
 }
 
 export interface SourceChannel {

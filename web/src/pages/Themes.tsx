@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { themesQuery } from "../api/queries";
@@ -114,7 +115,13 @@ function ThemeRow({ theme }: { theme: Theme }) {
   return (
     <li className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-medium text-ink">{theme.name}</span>
+        <Link
+          to={`/themes/${theme.id}`}
+          className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-accent"
+          title="Открыть карточку темы: конвейер, источники, бот, каналы"
+        >
+          {theme.name}
+        </Link>
         <div className="flex items-center gap-2">
           <StatusBadge active={theme.is_active} />
           <button

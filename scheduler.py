@@ -250,6 +250,14 @@ async def dedup_and_rewrite_job() -> None:
                 channel_bot = channel_bot_result.scalar_one_or_none()
                 persona_prompt = channel_bot.persona_prompt if channel_bot else ""
                 await rewrite.generate(candidate_id, persona_prompt)
+                # Премодерация темы: рерайт не идёт в автопаблиш напрямую, а
+                # ждёт одобрения в Проверке — тот же переход, что делает
+                # core/services/force_generate.py после generate().
+                theme = await session.get(Theme, theme_id)
+                if theme is not None and theme.premoderation:
+                    candidate = await session.get(CandidatePost, candidate_id)
+                    if candidate is not None:
+                        candidate.status = CandidatePostStatus.PENDING_REVIEW
                 rewritten += 1
                 await session.commit()
             except Exception as exc:

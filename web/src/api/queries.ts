@@ -14,6 +14,7 @@ import type {
   TargetChannel,
   TelethonSession,
   Theme,
+  ThemeHealth,
 } from "../types";
 
 export const meQuery = () => ({
@@ -24,6 +25,16 @@ export const meQuery = () => ({
 export const themesQuery = () => ({
   queryKey: ["themes"],
   queryFn: () => api.get<Theme[]>("/themes"),
+});
+
+export const themeQuery = (themeId: string) => ({
+  queryKey: ["themes", themeId],
+  queryFn: () => api.get<Theme>(`/themes/${themeId}`),
+});
+
+export const themeHealthQuery = (themeId: string) => ({
+  queryKey: ["theme-health", themeId],
+  queryFn: () => api.get<ThemeHealth>(`/themes/${themeId}/health`),
 });
 
 export const sourceChannelsQuery = (unassignedOnly: boolean) => ({

@@ -22,6 +22,7 @@ const TargetChannels = lazy(() =>
 const Review = lazy(() => import("./pages/Review").then((m) => ({ default: m.Review })));
 const PoolPosts = lazy(() => import("./pages/PoolPosts").then((m) => ({ default: m.PoolPosts })));
 const Setup = lazy(() => import("./pages/Setup").then((m) => ({ default: m.Setup })));
+const ThemeCard = lazy(() => import("./pages/ThemeCard").then((m) => ({ default: m.ThemeCard })));
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/themes" element={<Themes />} />
+          <Route path="/themes/:themeId" element={<ThemeCard />} />
           <Route path="/source-channels" element={<SourceChannels />} />
           <Route path="/telethon-sessions" element={<TelethonSessions />} />
           <Route path="/target-channels" element={<TargetChannels />} />
