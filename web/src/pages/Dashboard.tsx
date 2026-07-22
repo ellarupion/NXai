@@ -6,8 +6,10 @@ import {
   engagementQuery,
   onboardingQuery,
   themesQuery,
+  trendsQuery,
 } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
+import { Sparkline } from "../components/Sparkline";
 import { plural } from "../lib/plural";
 import type { Alert, WorkerStatus } from "../types";
 
@@ -236,6 +238,46 @@ const STATUS_ORDER = [
   "duplicate",
 ];
 
+/* «Динамика за 14 дней»: два спарклайна (вышло / собрано). Числа продублированы
+   текстом — график лишь показывает форму тренда. */
+function TrendsCard({ themeId }: { themeId?: string }) {
+  const { data } = useQuery(trendsQuery(themeId));
+  if (!data) return null;
+  const pubs = data.days.map((d) => d.publications);
+  const cands = data.days.map((d) => d.candidates);
+  const pubsTotal = pubs.reduce((a, b) => a + b, 0);
+  const candsTotal = cands.reduce((a, b) => a + b, 0);
+  if (pubsTotal === 0 && candsTotal === 0) return null;
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-ink">Динамика за 14 дней</h2>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex items-center gap-3">
+          <Sparkline values={pubs} />
+          <div>
+            <p className="font-mono text-lg tabular-nums text-ink">{pubsTotal}</p>
+            <p className="text-xs text-ink-muted">
+              публикаций · сегодня {pubs[pubs.length - 1]}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Sparkline values={cands} />
+          <div>
+            <p className="font-mono text-lg tabular-nums text-ink">{candsTotal}</p>
+            <p className="text-xs text-ink-muted">
+              постов собрано · сегодня {cands[cands.length - 1]}
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export { TrendsCard };
+
 function WorkersList({ workers }: { workers: WorkerStatus[] }) {
   return (
     <ul className="flex flex-col divide-y divide-border">
@@ -299,6 +341,8 @@ export function Dashboard() {
           </p>
         </Card>
       )}
+
+      <TrendsCard />
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-ink">Посты в работе</h2>

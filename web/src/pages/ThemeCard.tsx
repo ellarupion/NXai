@@ -10,6 +10,7 @@ import {
   themeQuery,
 } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatusBadge } from "../components/ui";
+import { TrendsCard } from "./Dashboard";
 import { plural } from "../lib/plural";
 import type { Theme, ThemeHealthStage, ThemeHealthStatus } from "../types";
 import { useState } from "react";
@@ -126,6 +127,8 @@ export function ThemeCard() {
           </div>
         )}
       </Card>
+
+      <TrendsCard themeId={themeId} />
 
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-semibold text-ink">Режим работы</h2>

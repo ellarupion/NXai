@@ -3,12 +3,12 @@
 PublicationMetricsSnapshot (наполняется scheduler.py:publication_metrics_job
 через Telethon-сессию, подписанную на целевой канал), эндпоинтом /engagement."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import Date, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
@@ -253,3 +253,58 @@ async def get_engagement(session: AsyncSession = Depends(get_db)) -> EngagementO
         for pub_id, published_at, title, views, forwards in result.all()
     ]
     return EngagementOut(metrics_configured=metrics_configured, publications=publications)
+
+
+class TrendDay(BaseModel):
+    date: str
+    publications: int
+    candidates: int
+
+
+class TrendsOut(BaseModel):
+    days: list[TrendDay]
+
+
+@router.get("/trends", response_model=TrendsOut)
+async def get_trends(
+    theme_id: UUID | None = None, session: AsyncSession = Depends(get_db)
+) -> TrendsOut:
+    """Динамика за 14 дней: публикации и собранные посты по дням (UX-этап 7,
+    спарклайны). theme_id сужает до одной темы (карточка темы)."""
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # cast(.. as Date), а не date_trunc('day', ..): строковый аргумент
+    # date_trunc уезжает в asyncpg двумя разными $-параметрами в SELECT и
+    # GROUP BY, и Postgres не может доказать их равенство (GroupingError).
+    pub_day = cast(Publication.published_at, Date)
+    pub_stmt = (
+        select(pub_day, func.count())
+        .where(Publication.published_at >= since)
+        .group_by(pub_day)
+    )
+    if theme_id is not None:
+        pub_stmt = pub_stmt.join(
+            TargetChannel, TargetChannel.id == Publication.target_channel_id
+        ).where(TargetChannel.theme_id == theme_id)
+    pubs = {day: count for day, count in (await session.execute(pub_stmt)).all()}
+
+    cand_day = cast(CandidatePost.first_seen_at, Date)
+    cand_stmt = (
+        select(cand_day, func.count())
+        .where(CandidatePost.first_seen_at >= since)
+        .group_by(cand_day)
+    )
+    if theme_id is not None:
+        cand_stmt = cand_stmt.join(
+            SourceChannel, SourceChannel.id == CandidatePost.source_channel_id
+        ).where(SourceChannel.theme_id == theme_id)
+    cands = {day: count for day, count in (await session.execute(cand_stmt)).all()}
+
+    days = []
+    for i in range(14):
+        d = (since + timedelta(days=i)).date()
+        days.append(
+            TrendDay(date=d.isoformat(), publications=pubs.get(d, 0), candidates=cands.get(d, 0))
+        )
+    return TrendsOut(days=days)

@@ -223,6 +223,16 @@ export interface Onboarding {
   steps: OnboardingStep[];
 }
 
+export interface TrendDay {
+  date: string;
+  publications: number;
+  candidates: number;
+}
+
+export interface Trends {
+  days: TrendDay[];
+}
+
 export type AlertSeverity = "warning" | "info";
 
 export interface Alert {

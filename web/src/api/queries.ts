@@ -15,6 +15,7 @@ import type {
   TelethonSession,
   Theme,
   ThemeHealth,
+  Trends,
 } from "../types";
 
 export const meQuery = () => ({
@@ -25,6 +26,11 @@ export const meQuery = () => ({
 export const themesQuery = () => ({
   queryKey: ["themes"],
   queryFn: () => api.get<Theme[]>("/themes"),
+});
+
+export const trendsQuery = (themeId?: string) => ({
+  queryKey: ["trends", themeId ?? "all"],
+  queryFn: () => api.get<Trends>(`/dashboard/trends${themeId ? `?theme_id=${themeId}` : ""}`),
 });
 
 export const themeQuery = (themeId: string) => ({
