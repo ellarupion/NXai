@@ -75,6 +75,13 @@ export interface Engagement {
   publications: PublicationEngagement[];
 }
 
+export interface AdminAccount {
+  id: string;
+  username: string;
+  is_superadmin: boolean;
+  created_at: string;
+}
+
 export interface Me {
   username: string;
   is_superadmin: boolean;

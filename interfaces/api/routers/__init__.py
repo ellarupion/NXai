@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from interfaces.api.routers.admins import router as admins_router
 from interfaces.api.routers.alerts import router as alerts_router
 from interfaces.api.routers.auth import router as auth_router
 from interfaces.api.routers.candidates import router as candidates_router
@@ -30,3 +31,4 @@ router.include_router(pool_posts_router)
 router.include_router(queue_router)
 router.include_router(dashboard_router)
 router.include_router(alerts_router)
+router.include_router(admins_router)

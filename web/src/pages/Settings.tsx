@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { generalSettingsQuery, settingsQuery } from "../api/queries";
-import { Button, Card, ErrorState, Input, LoadingState } from "../components/ui";
-import type { GeneralSettings, SecretSource, SettingsStatus } from "../types";
+import { generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
+import { Button, Card, Callout, ErrorState, Input, LoadingState } from "../components/ui";
+import type { AdminAccount, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
 function GeneralSettingsCard() {
   const queryClient = useQueryClient();
@@ -180,8 +180,136 @@ function SecretField({
   );
 }
 
+/* Управление админами (только суперадмин): обычный админ ведёт контент,
+   суперадмин дополнительно распоряжается ключами и учётками. */
+function AdminsCard() {
+  const queryClient = useQueryClient();
+  const admins = useQuery({
+    queryKey: ["admins"],
+    queryFn: () => api.get<AdminAccount[]>("/admins"),
+  });
+  const me = useQuery(meQuery());
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSuper, setIsSuper] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["admins"] });
+
+  const create = useMutation({
+    mutationFn: () => api.post<AdminAccount>("/admins", { username, password, is_superadmin: isSuper }),
+    onSuccess: () => {
+      setUsername("");
+      setPassword("");
+      setIsSuper(false);
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось создать админа"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(`/admins/${id}`),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось удалить"),
+  });
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-sm font-semibold text-ink">Администраторы</h2>
+        <p className="mt-1 text-xs text-ink-muted">
+          Админ ведёт контент: темы, источники, проверку, запас. Суперадмин
+          дополнительно управляет ключами (ИИ и Telegram), ботами и учётками —
+          выдавайте эту роль только тем, кому доверяете секреты.
+        </p>
+      </div>
+
+      {admins.isLoading && <LoadingState />}
+      {admins.error && <ErrorState message={admins.error.message} />}
+      {admins.data && (
+        <ul className="flex flex-col divide-y divide-border">
+          {admins.data.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-ink">{a.username}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    a.is_superadmin ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-muted"
+                  }`}
+                >
+                  {a.is_superadmin ? "суперадмин" : "админ"}
+                </span>
+                {me.data?.username === a.username && (
+                  <span className="text-xs text-ink-muted">(это вы)</span>
+                )}
+              </div>
+              {me.data?.username !== a.username && (
+                <Button
+                  variant="danger"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Удалить админа «${a.username}»? Он сразу потеряет доступ к панели.`)) {
+                      remove.mutate(a.id);
+                    }
+                  }}
+                >
+                  Удалить
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (username.trim() && password) create.mutate();
+        }}
+      >
+        <h3 className="text-xs font-semibold text-ink">Новый админ</h3>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Логин"
+            autoComplete="off"
+            required
+            className="flex-1"
+          />
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Пароль (не короче 8 символов)"
+            autoComplete="new-password"
+            required
+            className="flex-1"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-xs text-ink-muted">
+          <input type="checkbox" checked={isSuper} onChange={(e) => setIsSuper(e.target.checked)} />
+          Суперадмин — получит доступ к ключам, ботам и управлению учётками
+        </label>
+        <Button type="submit" disabled={create.isPending || !username.trim() || password.length < 8} className="self-start">
+          Создать
+        </Button>
+        {error && <p className="text-sm text-bad">{error}</p>}
+      </form>
+    </Card>
+  );
+}
+
 export function Settings() {
-  const { data, isLoading, error } = useQuery(settingsQuery());
+  const me = useQuery(meQuery());
+  const isSuper = Boolean(me.data?.is_superadmin);
+  // Обычному админу /settings вернёт 403 — не дёргаем его вовсе.
+  const { data, isLoading, error } = useQuery({ ...settingsQuery(), enabled: isSuper });
 
   return (
     <div className="flex flex-col gap-6">
@@ -195,6 +323,15 @@ export function Settings() {
 
       <GeneralSettingsCard />
 
+      {!isSuper && me.data && (
+        <Callout>
+          Ключи ИИ и Telegram, а также управление администраторами доступны только
+          суперадмину. Если они нужны вам — попросите суперадмина повысить вашу роль.
+        </Callout>
+      )}
+
+      {isSuper && (
+        <>
       <Card className="flex flex-col gap-6">
         <h2 className="text-sm font-semibold text-ink">LLM-ключи</h2>
         {isLoading && <LoadingState />}
@@ -227,6 +364,10 @@ export function Settings() {
           </>
         )}
       </Card>
+
+      <AdminsCard />
+        </>
+      )}
     </div>
   );
 }
