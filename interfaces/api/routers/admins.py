@@ -23,8 +23,6 @@ from interfaces.api.deps import get_db
 
 router = APIRouter(prefix="/admins", tags=["admins"], dependencies=[Depends(require_superadmin)])
 
-MIN_PASSWORD_LENGTH = 8
-
 
 class AdminOut(BaseModel):
     id: UUID
@@ -52,10 +50,8 @@ async def create_admin(payload: AdminCreate, session: AsyncSession = Depends(get
     username = payload.username.strip()
     if not username:
         raise HTTPException(status_code=400, detail="Логин не может быть пустым")
-    if len(payload.password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(
-            status_code=400, detail=f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов"
-        )
+    if not payload.password:
+        raise HTTPException(status_code=400, detail="Пароль не может быть пустым")
     try:
         admin = await AdminService(session).create_admin(
             username, payload.password, payload.is_superadmin

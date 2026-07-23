@@ -286,7 +286,7 @@ function AdminsCard() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Пароль (не короче 8 символов)"
+            placeholder="Пароль"
             autoComplete="new-password"
             required
             className="flex-1"
@@ -296,7 +296,7 @@ function AdminsCard() {
           <input type="checkbox" checked={isSuper} onChange={(e) => setIsSuper(e.target.checked)} />
           Суперадмин — получит доступ к ключам, ботам и управлению учётками
         </label>
-        <Button type="submit" disabled={create.isPending || !username.trim() || password.length < 8} className="self-start">
+        <Button type="submit" disabled={create.isPending || !username.trim() || !password} className="self-start">
           Создать
         </Button>
         {error && <p className="text-sm text-bad">{error}</p>}
