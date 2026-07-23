@@ -7,22 +7,16 @@ import { LoadingState } from "./components/ui";
 // lazy(): каждая страница — свой чанк (тот же приём, что в NX App.tsx).
 const Login = lazy(() => import("./pages/Login").then((m) => ({ default: m.Login })));
 const Dashboard = lazy(() => import("./pages/Dashboard").then((m) => ({ default: m.Dashboard })));
+// Единый рабочий стол темы (конвейер, источники, бот, каналы, запас) — вкладки
+// тем сверху, "+" создаёт новую. Заменил отдельные страницы Источники/Боты/
+// Каналы/Запас/ThemeCard (аудит UX: "сто вкладок, чтобы поправить тему").
 const Themes = lazy(() => import("./pages/Themes").then((m) => ({ default: m.Themes })));
-const SourceChannels = lazy(() =>
-  import("./pages/SourceChannels").then((m) => ({ default: m.SourceChannels })),
-);
-const Bots = lazy(() => import("./pages/Bots").then((m) => ({ default: m.Bots })));
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const TelethonSessions = lazy(() =>
   import("./pages/TelethonSessions").then((m) => ({ default: m.TelethonSessions })),
 );
-const TargetChannels = lazy(() =>
-  import("./pages/TargetChannels").then((m) => ({ default: m.TargetChannels })),
-);
 const Review = lazy(() => import("./pages/Review").then((m) => ({ default: m.Review })));
-const PoolPosts = lazy(() => import("./pages/PoolPosts").then((m) => ({ default: m.PoolPosts })));
 const Setup = lazy(() => import("./pages/Setup").then((m) => ({ default: m.Setup })));
-const ThemeCard = lazy(() => import("./pages/ThemeCard").then((m) => ({ default: m.ThemeCard })));
 const Queue = lazy(() => import("./pages/Queue").then((m) => ({ default: m.Queue })));
 
 function ProtectedLayout() {
@@ -47,14 +41,10 @@ function AppRoutes() {
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/themes" element={<Themes />} />
-          <Route path="/themes/:themeId" element={<ThemeCard />} />
-          <Route path="/source-channels" element={<SourceChannels />} />
+          <Route path="/themes/:themeId" element={<Themes />} />
           <Route path="/telethon-sessions" element={<TelethonSessions />} />
-          <Route path="/target-channels" element={<TargetChannels />} />
-          <Route path="/bots" element={<Bots />} />
           <Route path="/review" element={<Review />} />
           <Route path="/queue" element={<Queue />} />
-          <Route path="/pool-posts" element={<PoolPosts />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/setup" element={<Setup />} />
         </Route>

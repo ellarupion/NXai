@@ -180,9 +180,11 @@ async def get_onboarding(session: AsyncSession = Depends(get_db)) -> OnboardingO
         OnboardingStep(key="llm_key", label="Указать ключ Anthropic (LLM)", done=llm_key_set, href="/settings"),
         OnboardingStep(key="reader", label="Подключить аккаунт-читалку", done=reader_exists, href="/telethon-sessions"),
         OnboardingStep(key="theme", label="Создать тему", done=theme_exists, href="/themes"),
-        OnboardingStep(key="bot", label="Завести бота темы", done=theme_bot_exists, href="/bots"),
-        OnboardingStep(key="target", label="Добавить целевой канал", done=target_exists, href="/target-channels"),
-        OnboardingStep(key="source", label="Добавить источники", done=source_exists, href="/source-channels"),
+        # bot/target/source теперь настраиваются внутри вкладки темы
+        # (web/src/pages/Themes.tsx), а не на отдельных страницах — href общий.
+        OnboardingStep(key="bot", label="Завести бота темы", done=theme_bot_exists, href="/themes"),
+        OnboardingStep(key="target", label="Добавить целевой канал", done=target_exists, href="/themes"),
+        OnboardingStep(key="source", label="Добавить источники", done=source_exists, href="/themes"),
     ]
     return OnboardingOut(all_done=all(s.done for s in steps), steps=steps)
 

@@ -150,6 +150,7 @@ async def list_alerts(session: AsyncSession = Depends(get_db)) -> list[Alert]:
                         f"Источник «{source_channel.title}» не дал ни одного поста за "
                         f"{STALE_SOURCE_DAYS} дн."
                     ),
+                    theme_id=source_channel.theme_id,
                     source_channel_id=source_channel.id,
                 )
             )

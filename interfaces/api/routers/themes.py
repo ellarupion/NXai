@@ -248,7 +248,7 @@ async def theme_health(theme_id: UUID, session: AsyncSession = Depends(get_db)) 
             ThemeHealthStage(
                 key="publisher", label="Бот и канал", status="crit",
                 value=f"нет активного {missing}",
-                hint="Без этого публиковать некому и некуда — проверьте страницы «Боты» и «Каналы»",
+                hint=f"Без этого публиковать некому и некуда — заведите {missing} в разделах ниже",
             )
         )
     else:

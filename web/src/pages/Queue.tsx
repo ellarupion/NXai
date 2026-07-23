@@ -98,7 +98,7 @@ function ThemeQueueCard({ theme }: { theme: ThemeQueue }) {
             Сделайте посты
           </Link>{" "}
           или{" "}
-          <Link to="/pool-posts" className="text-accent underline underline-offset-2">
+          <Link to={`/themes/${theme.theme_id}`} className="text-accent underline underline-offset-2">
             пополните запас
           </Link>
           .

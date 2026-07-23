@@ -3,16 +3,14 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { LoadingState } from "./ui";
 
+// Источники/Боты/Каналы/Запас переехали внутрь вкладок темы (см. Themes.tsx) —
+// раньше правка одной темы требовала обхода 4 отдельных страниц.
 const NAV_ITEMS = [
   { to: "/", label: "Дашборд", end: true },
   { to: "/themes", label: "Темы" },
-  { to: "/source-channels", label: "Источники" },
   { to: "/telethon-sessions", label: "Аккаунты" },
-  { to: "/target-channels", label: "Каналы" },
-  { to: "/bots", label: "Боты" },
   { to: "/review", label: "Проверка" },
   { to: "/queue", label: "Очередь" },
-  { to: "/pool-posts", label: "Запас" },
   { to: "/settings", label: "Настройки" },
 ];
 

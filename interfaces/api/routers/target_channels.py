@@ -64,7 +64,8 @@ async def _bot_for_theme(session: AsyncSession, theme_id: UUID) -> Bot:
     channel_bot = result.scalar_one_or_none()
     if channel_bot is None:
         raise HTTPException(
-            status_code=400, detail="У темы ещё нет бота — сначала создайте его во вкладке «Боты»"
+            status_code=400,
+            detail="У темы ещё нет бота — сначала создайте его в разделе «Бот и стиль» этой же темы",
         )
     return Bot(token=channel_bot.bot_token)
 

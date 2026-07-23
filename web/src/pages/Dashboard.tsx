@@ -22,12 +22,12 @@ function EngagementCard() {
       <h2 className="mb-3 text-sm font-semibold text-ink">Как заходят посты</h2>
       {!data.metrics_configured && (
         <p className="text-sm text-ink-muted">
-          Сбор просмотров не настроен. Назначьте аккаунт-читалку каналу на странице{" "}
-          <Link to="/target-channels" className="text-accent underline underline-offset-2">
-            «Каналы»
+          Сбор просмотров не настроен. Откройте нужную тему во вкладке{" "}
+          <Link to="/themes" className="text-accent underline underline-offset-2">
+            «Темы»
           </Link>{" "}
-          (аккаунт должен состоять в этом канале) — и здесь появятся просмотры и пересылки
-          ваших постов.
+          и назначьте аккаунт-читалку целевому каналу (аккаунт должен состоять в этом
+          канале) — и здесь появятся просмотры и пересылки ваших постов.
         </p>
       )}
       {data.metrics_configured && data.publications.length === 0 && (
@@ -80,20 +80,30 @@ function OnboardingCard() {
   );
 }
 
-// Куда вести из алерта, чтобы проблему можно было чинить в один клик,
-// а не искать нужную страницу по тексту. Ключи — Alert.category с бэка
-// (interfaces/api/routers/alerts.py).
-const ALERT_ACTIONS: Record<string, { href: string; label: string }> = {
-  missing_bot: { href: "/bots", label: "Завести бота" },
-  missing_target_channel: { href: "/target-channels", label: "Добавить канал" },
-  theme_inactive: { href: "/review", label: "Проверить посты" },
-  pool_stagnant: { href: "/pool-posts", label: "Пополнить запас" },
-  source_no_output: { href: "/source-channels", label: "К источникам" },
-  pending_review_stale: { href: "/review", label: "К проверке" },
+// Куда вести из алерта, чтобы проблему можно было чинить в один клик, а не
+// искать нужную вкладку по тексту. Ключи — Alert.category с бэка
+// (interfaces/api/routers/alerts.py). Большинство категорий теперь чинятся
+// внутри вкладки темы (Themes.tsx), поэтому ссылка строится по alert.theme_id;
+// без него (например, source_no_output у источника без темы) кнопки нет.
+const ALERT_LABELS: Record<string, string> = {
+  missing_bot: "Открыть тему",
+  missing_target_channel: "Открыть тему",
+  theme_inactive: "Проверить посты",
+  pool_stagnant: "Открыть тему",
+  source_no_output: "Открыть тему",
+  pending_review_stale: "К проверке",
 };
 
+function alertHref(alert: Alert): string | null {
+  if (alert.category === "theme_inactive" || alert.category === "pending_review_stale") {
+    return "/review";
+  }
+  return alert.theme_id ? `/themes/${alert.theme_id}` : null;
+}
+
 function AlertLine({ alert }: { alert: Alert }) {
-  const action = ALERT_ACTIONS[alert.category];
+  const href = alertHref(alert);
+  const label = ALERT_LABELS[alert.category];
   return (
     <li
       className={`flex flex-wrap items-center justify-between gap-2 rounded-lg p-3 text-sm ${
@@ -101,12 +111,12 @@ function AlertLine({ alert }: { alert: Alert }) {
       }`}
     >
       <span>{alert.message}</span>
-      {action && (
+      {href && label && (
         <Link
-          to={action.href}
+          to={href}
           className="shrink-0 rounded-lg border border-current px-2 py-1 text-xs font-medium hover:opacity-80"
         >
-          {action.label}
+          {label}
         </Link>
       )}
     </li>
@@ -334,10 +344,10 @@ export function Dashboard() {
             Есть <span className="font-semibold">{data.source_channels_unassigned}</span>{" "}
             {plural(data.source_channels_unassigned, "источник", "источника", "источников")} без
             темы — их посты никуда не идут.{" "}
-            <Link to="/source-channels" className="text-accent underline underline-offset-2">
-              Распределите их
+            <Link to="/themes" className="text-accent underline underline-offset-2">
+              Откройте тему
             </Link>{" "}
-            по темам.
+            и прикрепите их в разделе «Источники».
           </p>
         </Card>
       )}
@@ -391,8 +401,8 @@ export function Dashboard() {
           <WorkersList workers={data.workers} />
           <p className="mt-3 text-xs text-ink-muted">
             Запас постов: {data.pool_posts_ready} из {data.pool_posts_total} готово к выходу —{" "}
-            <Link to="/pool-posts" className="text-accent underline underline-offset-2">
-              управлять запасом
+            <Link to="/themes" className="text-accent underline underline-offset-2">
+              смотрите по темам
             </Link>
             .
           </p>

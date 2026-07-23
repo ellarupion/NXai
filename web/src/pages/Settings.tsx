@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
-import { Button, Card, Callout, ErrorState, Input, LoadingState } from "../components/ui";
-import type { AdminAccount, GeneralSettings, SecretSource, SettingsStatus } from "../types";
+import { channelBotsQuery, generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
+import { Button, Card, Callout, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import type { AdminAccount, ChannelBot, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
 function GeneralSettingsCard() {
   const queryClient = useQueryClient();
@@ -305,6 +305,156 @@ function AdminsCard() {
   );
 }
 
+/* Admin-бот — единственный на всю систему, не привязан к теме (в отличие от
+   тематических ботов он живёт здесь же, в Настройках, а не во вкладках тем). */
+function AdminBotCard() {
+  const queryClient = useQueryClient();
+  const bots = useQuery(channelBotsQuery());
+  const adminBot = (bots.data ?? []).find((b) => b.role === "admin");
+  const [botToken, setBotToken] = useState("");
+  const [newToken, setNewToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [checkResult, setCheckResult] = useState<{ ok: boolean; detail: string } | null>(null);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
+
+  const create = useMutation({
+    mutationFn: () => api.post<ChannelBot>("/channel-bots", { role: "admin", bot_token: botToken }),
+    onSuccess: () => {
+      setBotToken("");
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось создать бота"),
+  });
+
+  const update = useMutation({
+    mutationFn: (payload: Partial<Pick<ChannelBot, "is_active">> & { bot_token?: string }) =>
+      api.put<ChannelBot>(`/channel-bots/${adminBot!.id}`, payload),
+    onSuccess: () => {
+      setError(null);
+      setNewToken("");
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось обновить"),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api.delete(`/channel-bots/${adminBot!.id}`),
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось удалить"),
+  });
+
+  const check = useMutation({
+    mutationFn: () => api.post<{ ok: boolean; detail: string }>(`/channel-bots/${adminBot!.id}/check`),
+    onSuccess: (data) => setCheckResult(data),
+    onError: (err) =>
+      setCheckResult({ ok: false, detail: err instanceof ApiError ? err.message : "Не удалось проверить" }),
+  });
+
+  const busy = update.isPending || remove.isPending;
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-sm font-semibold text-ink">Admin-бот</h2>
+        <p className="mt-1 text-xs text-ink-muted">
+          Один общий бот шлёт вам уведомления и статистику по всем темам (сам посты не
+          публикует). После создания один раз напишите ему /start в личку — иначе Telegram не
+          даст ему написать вам первым.
+        </p>
+      </div>
+      {bots.isLoading && <LoadingState />}
+      {!adminBot && !bots.isLoading && (
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (botToken) create.mutate();
+          }}
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder="Токен от @BotFather"
+            className="flex-1"
+            required
+          />
+          <Button type="submit" disabled={create.isPending || !botToken}>
+            Создать
+          </Button>
+        </form>
+      )}
+      {adminBot && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge active={adminBot.is_active} />
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                adminBot.notify_chat_set ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+              }`}
+            >
+              {adminBot.notify_chat_set ? "получатель есть" : "напишите /start боту"}
+            </span>
+            <Button variant="secondary" disabled={check.isPending} onClick={() => check.mutate()}>
+              {check.isPending ? "Проверяю…" : "Проверить связь"}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => update.mutate({ is_active: !adminBot.is_active })}
+            >
+              {adminBot.is_active ? "Отключить" : "Включить"}
+            </Button>
+            <Button
+              variant="danger"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm("Удалить admin-бота?")) remove.mutate();
+              }}
+            >
+              Удалить
+            </Button>
+          </div>
+          {checkResult && (
+            <p className={`text-xs ${checkResult.ok ? "text-good" : "text-bad"}`}>{checkResult.detail}</p>
+          )}
+          <details>
+            <summary className="cursor-pointer select-none text-xs text-ink-muted hover:text-ink">
+              Заменить токен
+            </summary>
+            <form
+              className="mt-2 flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (newToken) update.mutate({ bot_token: newToken });
+              }}
+            >
+              <Input
+                type="password"
+                autoComplete="off"
+                value={newToken}
+                onChange={(e) => setNewToken(e.target.value)}
+                placeholder="Новый токен"
+                className="flex-1"
+              />
+              <Button type="submit" variant="secondary" disabled={busy || !newToken}>
+                Заменить
+              </Button>
+            </form>
+          </details>
+        </div>
+      )}
+      {error && <p className="text-sm text-bad">{error}</p>}
+    </Card>
+  );
+}
+
 export function Settings() {
   const me = useQuery(meQuery());
   const isSuper = Boolean(me.data?.is_superadmin);
@@ -364,6 +514,8 @@ export function Settings() {
           </>
         )}
       </Card>
+
+      <AdminBotCard />
 
       <AdminsCard />
         </>
