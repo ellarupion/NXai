@@ -248,6 +248,7 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
     custom: bot.persona_prompt,
   });
   const [error, setError] = useState<string | null>(null);
+  const [editorId, setEditorId] = useState(bot.editor_chat_id ? String(bot.editor_chat_id) : "");
   const [checkResult, setCheckResult] = useState<{ ok: boolean; detail: string } | null>(null);
 
   const check = useMutation({
@@ -264,9 +265,12 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
 
   const update = useMutation({
     mutationFn: (
-      payload: Partial<Pick<ChannelBot, "is_active" | "persona_prompt" | "persona_config">> & {
-        bot_token?: string;
-      },
+      payload: Partial<
+        Pick<
+          ChannelBot,
+          "is_active" | "persona_prompt" | "persona_config" | "use_media" | "autopublish_enabled"
+        >
+      > & { bot_token?: string; editor_chat_id?: number },
     ) => api.put<ChannelBot>(`/channel-bots/${bot.id}`, payload),
     onSuccess: () => {
       setError(null);
@@ -342,6 +346,61 @@ function BotRow({ bot, themeName }: { bot: ChannelBot; themeName: string | null 
 
       {bot.role !== "admin" && (
         <>
+          <div className="flex flex-col gap-2 rounded-lg bg-surface-2 p-3">
+            <label
+              className="flex flex-col gap-1 text-xs text-ink-muted"
+              title="Бот будет присылать сюда готовые посты с кнопками Одобрить / Поправить / Отклонить. Чтобы узнать ID, редактор должен написать боту /start — бот ответит числом."
+            >
+              ID редактора (проверка постов в Telegram)
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  type="number"
+                  value={editorId}
+                  onChange={(e) => setEditorId(e.target.value)}
+                  placeholder="Редактор пишет боту /start и получает свой ID"
+                  className="flex-1"
+                />
+                {editorId !== (bot.editor_chat_id ? String(bot.editor_chat_id) : "") && (
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => update.mutate({ editor_chat_id: Number(editorId) || 0 })}
+                  >
+                    Сохранить
+                  </Button>
+                )}
+              </div>
+              <span>
+                {bot.editor_chat_id
+                  ? "Готовые посты уходят редактору в Telegram; правки редактора бот запоминает в личности."
+                  : "Не задан — посты ждут одобрения только в веб-«Проверке»."}
+              </span>
+            </label>
+            <label
+              className="flex items-center gap-2 text-xs text-ink-muted"
+              title="Бот прикладывает фото исходного поста. Рерайт при этом ужимается под лимит подписи Telegram к фото (1024 символа)."
+            >
+              <input
+                type="checkbox"
+                checked={bot.use_media}
+                disabled={busy}
+                onChange={(e) => update.mutate({ use_media: e.target.checked })}
+              />
+              Брать медиа из исходного поста
+            </label>
+            <label
+              className="flex items-center gap-2 text-xs text-ink-muted"
+              title="Выключено — бот только готовит посты и шлёт их редактору, сам в канал ничего не ставит (и антиреклама не перекрывает). Включайте, когда рерайт устроит."
+            >
+              <input
+                type="checkbox"
+                checked={bot.autopublish_enabled}
+                disabled={busy}
+                onChange={(e) => update.mutate({ autopublish_enabled: e.target.checked })}
+              />
+              Автопубликация в канал{!bot.autopublish_enabled && " (выключена — бот сам ничего не постит)"}
+            </label>
+          </div>
           <RejectionSignals
             bot={bot}
             onApply={(v) => update.mutate({ persona_prompt: v.custom, persona_config: v.config })}

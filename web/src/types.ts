@@ -120,6 +120,9 @@ export interface ChannelBot {
   cadence: Cadence;
   is_active: boolean;
   token_set: boolean;
+  editor_chat_id: number | null;
+  use_media: boolean;
+  autopublish_enabled: boolean;
   notify_chat_set: boolean;
 }
 

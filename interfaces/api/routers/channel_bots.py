@@ -51,6 +51,9 @@ class ChannelBotOut(BaseModel):
     cadence: dict
     is_active: bool
     token_set: bool
+    editor_chat_id: int | None
+    use_media: bool
+    autopublish_enabled: bool
     # Значим только для role=admin — есть ли получатель уведомлений
     # (см. core/models/channel_bot.py:notify_chat_id,
     # interfaces/bots/handlers/admin_start.py). Для role=theme всегда False.
@@ -69,6 +72,9 @@ class ChannelBotOut(BaseModel):
             cadence=bot.cadence,
             is_active=bot.is_active,
             token_set=bool(bot.bot_token),
+            editor_chat_id=bot.editor_chat_id,
+            use_media=bot.use_media,
+            autopublish_enabled=bot.autopublish_enabled,
             notify_chat_set=bot.notify_chat_id is not None,
         )
 
@@ -102,6 +108,10 @@ class ChannelBotUpdate(BaseModel):
     cadence: dict | None = None
     is_active: bool | None = None
     theme_id: UUID | None = None
+    # None — не менять; для сброса редактора передаётся editor_chat_id=0.
+    editor_chat_id: int | None = None
+    use_media: bool | None = None
+    autopublish_enabled: bool | None = None
 
 
 class RejectionStat(BaseModel):
@@ -215,6 +225,12 @@ async def update_channel_bot(
         bot.cadence = payload.cadence
     if payload.is_active is not None:
         bot.is_active = payload.is_active
+    if payload.editor_chat_id is not None:
+        bot.editor_chat_id = payload.editor_chat_id if payload.editor_chat_id != 0 else None
+    if payload.use_media is not None:
+        bot.use_media = payload.use_media
+    if payload.autopublish_enabled is not None:
+        bot.autopublish_enabled = payload.autopublish_enabled
     if "theme_id" in payload.model_fields_set:
         if bot.role == BotRole.ADMIN and payload.theme_id is not None:
             raise HTTPException(status_code=400, detail="role=admin не привязывается к теме")

@@ -82,4 +82,16 @@ class ChannelBot(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     notify_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    # Редактор бота-автора: chat_id, куда бот шлёт авторерайты на проверку с
+    # кнопками Одобрить/Поправить/Отклонить (задаётся в панели; узнать свой id
+    # редактор может, написав боту /start). NULL — карточки не шлются.
+    editor_chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Брать ли медиа исходного поста при отправке/публикации. При включении
+    # рерайт ужимается под лимит подписи Telegram к фото (1024 символа).
+    use_media: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Автопубликация в канал. False — бот только готовит посты и шлёт их
+    # редактору, сам в канал ничего не ставит (режим обкатки рерайта);
+    # publisher и антиреклама этого бота пропускают.
+    autopublish_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
     theme: Mapped["Theme | None"] = relationship(back_populates="bots")

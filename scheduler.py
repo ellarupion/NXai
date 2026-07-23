@@ -52,6 +52,7 @@ from core.services.rewrite import RewriteService
 from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
 from core.statistics.client import SourceStatsClient
+from interfaces.bots.notify import push_editor_card
 
 logger = get_logger(__name__)
 
@@ -254,17 +255,61 @@ async def dedup_and_rewrite_job() -> None:
                     if channel_bot
                     else ""
                 )
+                candidate = await session.get(CandidatePost, candidate_id)
+                # Пост выйдет с фото — подпись Telegram ограничена 1024
+                # символами, рерайт обязан уложиться (иначе текст режется).
+                if (
+                    channel_bot is not None
+                    and channel_bot.use_media
+                    and candidate is not None
+                    and candidate.has_media
+                ):
+                    persona_prompt = (
+                        f"{persona_prompt}\n\nВАЖНО: пост будет опубликован с фотографией, "
+                        "а Telegram ограничивает подпись к фото 1024 символами. "
+                        "Уложи весь пост не длиннее 900 символов."
+                    )
                 await rewrite.generate(candidate_id, persona_prompt)
-                # Премодерация темы: рерайт не идёт в автопаблиш напрямую, а
-                # ждёт одобрения в Проверке — тот же переход, что делает
-                # core/services/force_generate.py после generate().
+                # Премодерация: рерайт ждёт одобрения, если она включена у темы
+                # ИЛИ у бота задан редактор (указал редактора — посты идут ему,
+                # тот же переход, что в core/services/force_generate.py).
                 theme = await session.get(Theme, theme_id)
-                if theme is not None and theme.premoderation:
+                has_editor = channel_bot is not None and channel_bot.editor_chat_id is not None
+                if (theme is not None and theme.premoderation) or has_editor:
                     candidate = await session.get(CandidatePost, candidate_id)
                     if candidate is not None:
                         candidate.status = CandidatePostStatus.PENDING_REVIEW
                 rewritten += 1
                 await session.commit()
+                # Карточка редактору в личку тем-бота (кнопки Одобрить/
+                # Поправить/Отклонить) — после коммита: пост уже в очереди,
+                # сбой отправки его не потеряет (останется в веб-Проверке).
+                if has_editor:
+                    candidate = await session.get(CandidatePost, candidate_id)
+                    version = (
+                        await session.get(PostVersion, candidate.selected_post_version_id)
+                        if candidate and candidate.selected_post_version_id
+                        else None
+                    )
+                    source_channel = (
+                        await session.get(SourceChannel, candidate.source_channel_id)
+                        if candidate
+                        else None
+                    )
+                    if candidate and version:
+                        photos = (
+                            await download_candidate_photos(session, candidate, settings)
+                            if channel_bot.use_media and candidate.has_media
+                            else []
+                        )
+                        await push_editor_card(
+                            channel_bot,
+                            candidate_id,
+                            source_channel.title if source_channel else "",
+                            version.rewritten_text,
+                            candidate.score,
+                            photos=photos,
+                        )
             except Exception as exc:
                 await session.rollback()
                 logger.exception("scheduler.rewrite_failed", candidate_id=str(candidate_id))
@@ -306,9 +351,14 @@ async def publish_pool_job() -> None:
             channel_bot = await session.get(ChannelBot, bot_id)
             if channel_bot is None or channel_bot.theme_id is None:
                 continue
+            # Режим обкатки: автопубликация выключена — бот только готовит
+            # посты и шлёт их редактору, в канал сам не ставит.
+            if not channel_bot.autopublish_enabled:
+                continue
             theme_id = channel_bot.theme_id
             cadence = channel_bot.cadence
             bot_token = channel_bot.bot_token
+            bot_use_media = channel_bot.use_media
 
             target_result = await session.execute(
                 select(TargetChannel).where(
@@ -346,7 +396,7 @@ async def publish_pool_job() -> None:
                         candidate = await session.get(CandidatePost, next_post.id)
                         photos = (
                             await download_candidate_photos(session, candidate, settings)
-                            if candidate and candidate.has_media
+                            if bot_use_media and candidate and candidate.has_media
                             else []
                         )
                         await publisher.publish_candidate_to_channels(
@@ -414,6 +464,10 @@ async def ad_watchdog_job() -> None:
                 )
                 channel_bot = channel_bot_result.scalar_one_or_none()
                 if channel_bot is None:
+                    continue
+                # Режим обкатки: перекрытие рекламы — тоже публикация в канал,
+                # при выключенной автопубликации бот её не делает.
+                if not channel_bot.autopublish_enabled:
                     continue
 
                 async with Bot(token=channel_bot.bot_token) as bot:
