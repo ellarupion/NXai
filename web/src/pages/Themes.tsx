@@ -864,18 +864,7 @@ function ThemeBotPanel({ bot }: { bot: ChannelBot }) {
               : "Не задан — посты ждут одобрения только в веб-«Проверке»."}
           </span>
         </label>
-        <label
-          className="flex items-center gap-2 text-xs text-ink-muted"
-          title="Бот прикладывает фото исходного поста. Рерайт при этом ужимается под лимит подписи Telegram к фото (1024 символа)."
-        >
-          <input
-            type="checkbox"
-            checked={bot.use_media}
-            disabled={busy}
-            onChange={(e) => update.mutate({ use_media: e.target.checked })}
-          />
-          Брать медиа из исходного поста
-        </label>
+        {/* «Брать медиа» переехало в «Режим работы» выше — там его ищут. */}
         <label
           className="flex items-center gap-2 text-xs text-ink-muted"
           title="Выключено — бот только готовит посты и шлёт их редактору, сам в канал ничего не ставит (и антиреклама не перекрывает). Включайте, когда рерайт устроит."
@@ -1332,6 +1321,20 @@ function ThemeDetail({ themeId }: { themeId: string }) {
     onError: (err) => setModeError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
   });
 
+  /* «Брать медиа» хранится на боте темы (ChannelBot.use_media), но по смыслу
+     это режим работы темы, а не настройка стиля, — поэтому тумблер живёт в
+     «Режиме работы» рядом с премодерацией, а не в «Боте и стиле», где его
+     приходилось выискивать среди персоны и расписания. */
+  const updateBotMode = useMutation({
+    mutationFn: ({ botId, ...payload }: { botId: string; use_media: boolean }) =>
+      api.put(`/channel-bots/${botId}`, payload),
+    onSuccess: () => {
+      setModeError(null);
+      queryClient.invalidateQueries({ queryKey: ["channel-bots"] });
+    },
+    onError: (err) => setModeError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
+  });
+
   if (theme.isLoading) return <LoadingState />;
   if (theme.error)
     return <ErrorState message={errorText(theme.error)} onRetry={() => theme.refetch()} />;
@@ -1376,6 +1379,29 @@ function ThemeDetail({ themeId }: { themeId: string }) {
           onChange={(v) => updateMode.mutate({ premoderation: v })}
           disabled={updateMode.isPending}
         />
+
+        {themeBot ? (
+          <Toggle
+            label="Брать фото и медиа из исходных постов"
+            hint="Бот прикладывает к посту фото оригинала. Рерайт при этом ужимается под лимит подписи Telegram к фото — 1024 символа. Выключено — выходит только текст."
+            checked={themeBot.use_media}
+            onChange={(v) => updateBotMode.mutate({ botId: themeBot.id, use_media: v })}
+            disabled={updateBotMode.isPending}
+          />
+        ) : (
+          <div className="flex items-start gap-3 opacity-50">
+            <input type="checkbox" checked={false} disabled className="mt-0.5" />
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-ink">
+                Брать фото и медиа из исходных постов
+              </span>
+              <span className="text-xs text-ink-muted">
+                Появится, когда у темы будет бот — медиа прикладывает именно он (раздел
+                «Бот и стиль» ниже).
+              </span>
+            </div>
+          </div>
+        )}
         <div className="flex items-start gap-3">
           <input
             type="checkbox"
