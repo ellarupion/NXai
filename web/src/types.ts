@@ -172,7 +172,8 @@ export interface GeneratedPost {
 
 export interface PendingReviewPost {
   candidate_id: string;
-  theme_id: string;
+  // null — тему удалили, а кандидат остался (см. PendingReviewOut на бэке)
+  theme_id: string | null;
   source_channel_title: string;
   raw_text: string;
   rewritten_text: string;

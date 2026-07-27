@@ -24,6 +24,7 @@ from core.services.review import (
     approve_candidate,
     edit_candidate_text,
     reject_candidate,
+    unapprove_candidate,
 )
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
@@ -48,7 +49,10 @@ class GeneratedPostOut(BaseModel):
 
 class PendingReviewOut(BaseModel):
     candidate_id: UUID
-    theme_id: UUID
+    # Nullable: source_channels.theme_id — ON DELETE SET NULL, поэтому после
+    # удаления темы её PENDING_REVIEW-кандидаты остаются, но уже без темы.
+    # С обязательным UUID здесь Pydantic ронял ВЕСЬ список проверки в 500.
+    theme_id: UUID | None
     source_channel_title: str
     raw_text: str
     rewritten_text: str
@@ -159,6 +163,18 @@ async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await record_audit(session, AuditAction.APPROVE, "candidate", str(candidate_id))
+    await session.commit()
+
+
+@router.post("/{candidate_id}/unapprove", status_code=204)
+async def unapprove(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -> None:
+    """Откат одобрения в короткое окно отмены (UX-аудит, №2) — пост
+    возвращается в «Проверку». Если планировщик уже забрал его в публикацию,
+    сервис вернёт 400 с объяснением."""
+    try:
+        await unapprove_candidate(session, candidate_id)
+    except ReviewError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await session.commit()
 
 

@@ -42,6 +42,29 @@ async def approve_candidate(session: AsyncSession, candidate_id: UUID) -> Candid
     return candidate
 
 
+async def unapprove_candidate(session: AsyncSession, candidate_id: UUID) -> CandidatePost:
+    """Отмена одобрения (UX-аудит, №2). Одобрение — единственное необратимое
+    действие в «Проверке», причём самое дешёвое: одна клавиша A, без
+    подтверждения. Подтверждение убило бы скорость разбора очереди, поэтому
+    вместо него — короткое окно отмены.
+
+    Работает, только пока планировщик не забрал пост: из REWRITTEN он уходит в
+    QUEUED/PUBLISHED на ближайшем тике, и «отменить» после этого нечего —
+    сообщаем честно, а не делаем вид, что откатили."""
+    candidate = await session.get(CandidatePost, candidate_id)
+    if candidate is None:
+        raise ReviewError("Кандидат не найден")
+    if candidate.status is CandidatePostStatus.PENDING_REVIEW:
+        return candidate  # уже вернули (двойной клик по «Отменить») — не ошибка
+    if candidate.status is not CandidatePostStatus.REWRITTEN:
+        raise ReviewError(
+            "Пост уже ушёл дальше по конвейеру — отменить одобрение нельзя"
+        )
+    candidate.status = CandidatePostStatus.PENDING_REVIEW
+    await session.flush()
+    return candidate
+
+
 async def edit_candidate_text(
     session: AsyncSession, candidate_id: UUID, new_text: str
 ) -> PostVersion:
