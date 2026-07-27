@@ -17,6 +17,7 @@ from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus, PoolPostStatus
 from core.models.metrics_snapshot import PublicationMetricsSnapshot
 from core.models.pool_post import PoolPost
+from core.models.post_version import PostVersion
 from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
@@ -224,15 +225,24 @@ async def get_engagement(session: AsyncSession = Depends(get_db)) -> EngagementO
         .group_by(PublicationMetricsSnapshot.publication_id)
         .subquery()
     )
+    # Текст публикации берём из post_versions (рерайт кандидата) либо pool_posts
+    # (пост из запаса) — ровно одно из двух заполнено, см.
+    # core/services/publisher.py. Без превью список вырождался в N одинаковых
+    # строк с названием канала, и понять, КАКОЙ пост собрал просмотры, было
+    # нельзя (UX-аудит, №10).
     result = await session.execute(
         select(
             Publication.id,
             Publication.published_at,
             TargetChannel.title,
+            PostVersion.rewritten_text,
+            PoolPost.text,
             PublicationMetricsSnapshot.views,
             PublicationMetricsSnapshot.forwards,
         )
         .join(TargetChannel, TargetChannel.id == Publication.target_channel_id)
+        .outerjoin(PostVersion, PostVersion.id == Publication.post_version_id)
+        .outerjoin(PoolPost, PoolPost.id == Publication.pool_post_id)
         .join(latest, latest.c.publication_id == Publication.id)
         .join(
             PublicationMetricsSnapshot,
@@ -248,11 +258,11 @@ async def get_engagement(session: AsyncSession = Depends(get_db)) -> EngagementO
             publication_id=pub_id,
             published_at=published_at,
             channel_title=title,
-            preview="",
+            preview=(rewritten or pool_text or "").strip()[:120],
             views=views,
             forwards=forwards,
         )
-        for pub_id, published_at, title, views, forwards in result.all()
+        for pub_id, published_at, title, rewritten, pool_text, views, forwards in result.all()
     ]
     return EngagementOut(metrics_configured=metrics_configured, publications=publications)
 

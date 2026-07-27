@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
+from core.models.channel_bot import DEFAULT_CADENCE
 from core.models.enums import CandidatePostStatus, PoolPostStatus
 from core.models.pool_post import PoolPost
 from core.models.source_channel import SourceChannel
@@ -40,9 +41,14 @@ def is_quiet_hour(cadence: dict, at: datetime, tz: ZoneInfo | None = None) -> bo
     """`at` приводится к таймзоне проекта перед сравнением часа: quiet_hours
     задаются настенными часами оператора, а `at` приходит в UTC (аудит, К3).
     tz=None сохраняет старое поведение (сравнение по UTC) для обратной
-    совместимости вызовов без зоны."""
+    совместимости вызовов без зоны.
+
+    Ключи читаются через .get() с дефолтами: cadence — свободный JSONB, и
+    неполный набор ключей не должен ронять тик публикации (и страницу
+    «Очередь», которая зовёт эту же функцию) — UX-аудит, №12."""
     local = at.astimezone(tz) if tz is not None else at
-    start, end = cadence["quiet_hours_start"], cadence["quiet_hours_end"]
+    start = cadence.get("quiet_hours_start", DEFAULT_CADENCE["quiet_hours_start"])
+    end = cadence.get("quiet_hours_end", DEFAULT_CADENCE["quiet_hours_end"])
     hour = local.hour
     if start == end:
         return False
@@ -67,7 +73,9 @@ def is_due(
         return False
     if last_published_at is None:
         return True
-    min_interval = timedelta(minutes=cadence["min_interval_minutes"])
+    min_interval = timedelta(
+        minutes=cadence.get("min_interval_minutes", DEFAULT_CADENCE["min_interval_minutes"])
+    )
     return now - last_published_at >= min_interval
 
 
@@ -76,8 +84,11 @@ def next_allowed_delay(cadence: dict) -> timedelta:
     джиттер — используется, если планировщику нужно заранее оценить следующий
     слот (например, при первом запуске темы), а не только проверять is_due
     на каждый тик."""
-    base_minutes = random.uniform(cadence["min_interval_minutes"], cadence["max_interval_minutes"])
-    jitter_minutes = random.uniform(-cadence["jitter_minutes"], cadence["jitter_minutes"])
+    lo = cadence.get("min_interval_minutes", DEFAULT_CADENCE["min_interval_minutes"])
+    hi = cadence.get("max_interval_minutes", DEFAULT_CADENCE["max_interval_minutes"])
+    jitter = cadence.get("jitter_minutes", DEFAULT_CADENCE["jitter_minutes"])
+    base_minutes = random.uniform(lo, hi)
+    jitter_minutes = random.uniform(-jitter, jitter)
     return timedelta(minutes=max(1.0, base_minutes + jitter_minutes))
 
 

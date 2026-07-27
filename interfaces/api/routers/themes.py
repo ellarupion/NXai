@@ -18,6 +18,8 @@ from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.theme import Theme
+from core.services.panel_settings import get_or_create_panel_settings
+from core.services.scheduler_pool import resolve_zoneinfo
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
@@ -130,13 +132,41 @@ async def theme_health(theme_id: UUID, session: AsyncSession = Depends(get_db)) 
         raise HTTPException(status_code=404, detail="Theme not found")
 
     now = datetime.now(timezone.utc)
+    panel_settings = await get_or_create_panel_settings(session)
+    tz = resolve_zoneinfo(panel_settings.timezone)
     stages: list[ThemeHealthStage] = []
 
-    # 1. Источники: есть ли активные и читаются ли они.
+    # 1. Источники. Три состояния разведены намеренно (UX-аудит, №8): раньше
+    # «читалке не назначен источник» и «назначена, но давно молчит» попадали в
+    # одну ветку с текстом «сутки без чтения — проверьте аккаунты-читалки», и
+    # оператор шёл диагностировать здоровые аккаунты, хотя чинится это
+    # выпадающим списком в разделе «Источники» на той же странице. Отдельно
+    # «ждёт первого чтения» — норма для только что добавленного источника, а не
+    # тревога: строка источника в панели говорит ровно это же, и два разных
+    # утверждения об одном факте на одном экране путали больше, чем помогали.
     active_sources = await session.scalar(
         select(func.count())
         .select_from(SourceChannel)
         .where(SourceChannel.theme_id == theme_id, SourceChannel.is_active.is_(True))
+    )
+    without_session = await session.scalar(
+        select(func.count())
+        .select_from(SourceChannel)
+        .where(
+            SourceChannel.theme_id == theme_id,
+            SourceChannel.is_active.is_(True),
+            SourceChannel.ingest_session_id.is_(None),
+        )
+    )
+    never_scanned = await session.scalar(
+        select(func.count())
+        .select_from(SourceChannel)
+        .where(
+            SourceChannel.theme_id == theme_id,
+            SourceChannel.is_active.is_(True),
+            SourceChannel.ingest_session_id.is_not(None),
+            SourceChannel.last_scanned_at.is_(None),
+        )
     )
     scanned_recently = await session.scalar(
         select(func.count())
@@ -154,12 +184,40 @@ async def theme_health(theme_id: UUID, session: AsyncSession = Depends(get_db)) 
                 hint="Добавьте каналы-источники — без них теме неоткуда брать контент",
             )
         )
+    elif without_session and without_session == active_sources:
+        stages.append(
+            ThemeHealthStage(
+                key="sources", label="Источники", status="crit",
+                value=f"{active_sources} шт., без читалки",
+                hint="Ни одному источнику не назначен аккаунт-читалка — назначьте его "
+                     "в разделе «Источники» ниже. Сами аккаунты тут ни при чём",
+            )
+        )
+    elif without_session:
+        stages.append(
+            ThemeHealthStage(
+                key="sources", label="Источники", status="warn",
+                value=f"{active_sources} шт., без читалки {without_session}",
+                hint=f"У {without_session} из {active_sources} источников не назначен "
+                     "аккаунт-читалка — они не читаются. Назначьте в разделе «Источники» ниже",
+            )
+        )
+    elif not scanned_recently and never_scanned:
+        stages.append(
+            ThemeHealthStage(
+                key="sources", label="Источники", status="ok",
+                value=f"{active_sources} шт., ждут первого чтения",
+                hint="Читалка возьмёт их в работу в течение минуты — для только что "
+                     "добавленных источников это нормально",
+            )
+        )
     elif not scanned_recently:
         stages.append(
             ThemeHealthStage(
                 key="sources", label="Источники", status="warn",
                 value=f"{active_sources} шт., сутки без чтения",
-                hint="Читалка не читала источники больше суток — проверьте аккаунты-читалки",
+                hint="Читалка не читала источники больше суток — проверьте на вкладке "
+                     "«Аккаунты», что назначенный аккаунт активен",
             )
         )
     else:
@@ -290,7 +348,11 @@ async def theme_health(theme_id: UUID, session: AsyncSession = Depends(get_db)) 
         stages.append(
             ThemeHealthStage(
                 key="publications", label="Публикации", status="ok",
-                value=f"последняя {last_published.strftime('%d.%m %H:%M')} UTC, запас: {pool_ready}",
+                # Время в поясе проекта, а не в UTC: в нём же оператор видит
+                # прогноз на «Очереди» и в нём считаются тихие часы. Раньше
+                # здесь печатался UTC — третий пояс на том же экране
+                # (UX-аудит, №11).
+                value=f"последняя {last_published.astimezone(tz).strftime('%d.%m %H:%M')}, запас: {pool_ready}",
             )
         )
 

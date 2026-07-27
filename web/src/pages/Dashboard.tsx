@@ -9,18 +9,29 @@ import {
   trendsQuery,
 } from "../api/queries";
 import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
+import { errorText } from "../lib/errors";
 import { Sparkline } from "../components/Sparkline";
+import { formatMoment, useProjectTz } from "../lib/datetime";
 import { plural } from "../lib/plural";
 import type { Alert, WorkerStatus } from "../types";
 
 function EngagementCard() {
   const { data } = useQuery(engagementQuery());
+  const tz = useProjectTz();
   if (!data) return null;
+
+  /* Три ВЗАИМОИСКЛЮЧАЮЩИЕ ветки, а не два независимых условия: раньше при
+     выключенном сборе, но уже накопленных снапшотах (читалку отвязали от
+     канала после сбора) карточка одновременно писала «сбор не настроен» и
+     показывала живые цифры — UX-аудит, №9. Данные важнее подсказки: если
+     цифры есть, показываем их, а про ненастроенный сбор говорим сноской. */
+  const hasRows = data.publications.length > 0;
 
   return (
     <Card>
       <h2 className="mb-3 text-sm font-semibold text-ink">Как заходят посты</h2>
-      {!data.metrics_configured && (
+
+      {!hasRows && !data.metrics_configured && (
         <p className="text-sm text-ink-muted">
           Сбор просмотров не настроен. Откройте нужную тему во вкладке{" "}
           <Link to="/themes" className="text-accent underline underline-offset-2">
@@ -30,22 +41,41 @@ function EngagementCard() {
           канале) — и здесь появятся просмотры и пересылки ваших постов.
         </p>
       )}
-      {data.metrics_configured && data.publications.length === 0 && (
+
+      {!hasRows && data.metrics_configured && (
         <p className="text-sm text-ink-muted">
           Просмотры ещё не собраны — они появятся в течение получаса после первой публикации.
         </p>
       )}
-      {data.publications.length > 0 && (
-        <ul className="flex flex-col divide-y divide-border">
-          {data.publications.map((p) => (
-            <li key={p.publication_id} className="flex items-center justify-between gap-3 py-2">
-              <span className="truncate text-sm text-ink">{p.channel_title}</span>
-              <span className="font-mono text-xs tabular-nums text-ink-muted whitespace-nowrap">
-                👁 {p.views ?? "—"} · 🔁 {p.forwards ?? "—"}
-              </span>
-            </li>
-          ))}
-        </ul>
+
+      {hasRows && (
+        <>
+          <ul className="flex flex-col divide-y divide-border">
+            {data.publications.map((p) => (
+              <li key={p.publication_id} className="flex items-start justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-ink">{p.preview || p.channel_title}</p>
+                  <p className="mt-0.5 truncate text-xs text-ink-muted">
+                    {p.channel_title} · {formatMoment(p.published_at, tz)}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted whitespace-nowrap">
+                  👁 {p.views ?? "—"} · 🔁 {p.forwards ?? "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!data.metrics_configured && (
+            <p className="mt-3 text-xs text-ink-muted">
+              Сбор просмотров сейчас выключен — это последние собранные цифры, новые не
+              появятся. Назначьте аккаунт-читалку целевому каналу во вкладке{" "}
+              <Link to="/themes" className="text-accent underline underline-offset-2">
+                «Темы»
+              </Link>
+              , чтобы продолжить.
+            </p>
+          )}
+        </>
       )}
     </Card>
   );
@@ -132,7 +162,8 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
   const themeNameById = new Map(themes.data?.map((t) => [t.id, t.name]) ?? []);
 
   if (alerts.isLoading) return <LoadingState />;
-  if (alerts.error) return <ErrorState message={alerts.error.message} />;
+  if (alerts.error)
+    return <ErrorState message={errorText(alerts.error)} onRetry={() => alerts.refetch()} />;
   const data = alerts.data ?? [];
 
   const critical = data.filter((a) => a.severity === "warning");
@@ -308,10 +339,10 @@ function WorkersList({ workers }: { workers: WorkerStatus[] }) {
 }
 
 export function Dashboard() {
-  const { data, isLoading, error } = useQuery(dashboardStatsQuery());
+  const { data, isLoading, error, refetch } = useQuery(dashboardStatsQuery());
 
   if (isLoading) return <LoadingState />;
-  if (error) return <ErrorState message={error.message} />;
+  if (error) return <ErrorState message={errorText(error)} onRetry={() => refetch()} />;
   if (!data) return null;
 
   // Нулевые стадии конвейера не показываем — сетка из девяти нулей ни о чём

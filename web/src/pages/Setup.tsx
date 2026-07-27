@@ -9,6 +9,7 @@ import {
   themesQuery,
 } from "../api/queries";
 import { Button, Card, ErrorState, Input, LoadingState, Select, Textarea } from "../components/ui";
+import { errorText } from "../lib/errors";
 import { LoginWizard } from "./TelethonSessions";
 import type { ChannelBot, SourceChannel, TargetChannel, Theme } from "../types";
 
@@ -436,13 +437,13 @@ const STEP_FORMS: Record<StepKey, ComponentType> = {
 };
 
 export function Setup() {
-  const { data, isLoading, error } = useQuery(onboardingQuery());
+  const { data, isLoading, error, refetch } = useQuery(onboardingQuery());
   // null — «следовать за прогрессом» (первый несделанный шаг); клик по чипу
   // переключает на конкретный шаг, например вернуться и добавить ещё источник.
   const [manualStep, setManualStep] = useState<StepKey | null>(null);
 
   if (isLoading) return <LoadingState />;
-  if (error) return <ErrorState message={error.message} />;
+  if (error) return <ErrorState message={errorText(error)} onRetry={() => refetch()} />;
   if (!data) return null;
 
   const doneByKey = new Map(data.steps.map((s) => [s.key, s.done]));

@@ -12,18 +12,8 @@ import {
   themeQuery,
   themesQuery,
 } from "../api/queries";
-import {
-  Button,
-  Callout,
-  Card,
-  EmptyState,
-  ErrorState,
-  Input,
-  LoadingState,
-  Select,
-  StatusBadge,
-  Textarea,
-} from "../components/ui";
+import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, Select, StatusBadge, Textarea } from "../components/ui";
+import { errorText } from "../lib/errors";
 import { PersonaEditor, type PersonaValue } from "../components/PersonaEditor";
 import { TrendsCard } from "./Dashboard";
 import { plural } from "../lib/plural";
@@ -1059,7 +1049,7 @@ function CrosspostEditor({ targetChannel }: { targetChannel: TargetChannel }) {
   );
 }
 
-function CreateTargetChannelForm({ themeId }: { themeId: string }) {
+function CreateTargetChannelForm({ themeId, hasBot }: { themeId: string; hasBot: boolean }) {
   const queryClient = useQueryClient();
   const [chatIdOrUsername, setChatIdOrUsername] = useState("");
   const [signature, setSignature] = useState("");
@@ -1090,22 +1080,29 @@ function CreateTargetChannelForm({ themeId }: { themeId: string }) {
         create.mutate();
       }}
     >
+      {/* Канал нельзя добавить, пока у темы нет бота: панель проверяет права
+          бота в канале через Bot API (interfaces/api/routers/target_channels.py:
+          _bot_for_theme). Раньше форма была активна и ошибка «у темы ещё нет
+          бота» прилетала только после отправки — UX-аудит, №15. */}
       <p className="text-sm text-ink-muted">
-        Бот темы должен быть уже добавлен в канал админом — панель проверяет это через Bot API
-        перед сохранением, а не просто верит вводу.
+        {hasBot
+          ? "Бот темы должен быть уже добавлен в канал админом — панель проверяет это через Bot API перед сохранением, а не просто верит вводу."
+          : "Сначала создайте бота темы в разделе «Бот и стиль» выше — панель проверяет права бота в канале, и без бота проверить нечем."}
       </p>
       <Input
         value={chatIdOrUsername}
         onChange={(e) => setChatIdOrUsername(e.target.value)}
         placeholder="@username канала или числовой chat_id (например, -1001234567890)"
         required
+        disabled={!hasBot}
       />
       <Input
         value={signature}
         onChange={(e) => setSignature(e.target.value)}
         placeholder="Подпись к публикациям (необязательно)"
+        disabled={!hasBot}
       />
-      <Button type="submit" disabled={create.isPending} className="self-start">
+      <Button type="submit" disabled={create.isPending || !hasBot} className="self-start">
         Добавить
       </Button>
       {error && <p className="text-sm text-bad">{error}</p>}
@@ -1336,7 +1333,8 @@ function ThemeDetail({ themeId }: { themeId: string }) {
   });
 
   if (theme.isLoading) return <LoadingState />;
-  if (theme.error) return <ErrorState message={theme.error.message} />;
+  if (theme.error)
+    return <ErrorState message={errorText(theme.error)} onRetry={() => theme.refetch()} />;
   if (!theme.data) return null;
 
   const themeSources = (sources.data ?? []).filter((s) => s.theme_id === themeId);
@@ -1355,7 +1353,9 @@ function ThemeDetail({ themeId }: { themeId: string }) {
           и застряло.
         </p>
         {health.isLoading && <LoadingState />}
-        {health.error && <ErrorState message={health.error.message} />}
+        {health.error && (
+          <ErrorState message={errorText(health.error)} onRetry={() => health.refetch()} />
+        )}
         {health.data && (
           <div className="flex flex-col gap-2 lg:flex-row">
             {health.data.stages.map((stage) => (
@@ -1438,7 +1438,7 @@ function ThemeDetail({ themeId }: { themeId: string }) {
 
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-ink">Каналы ({themeChannels.length})</h2>
-        <CreateTargetChannelForm themeId={themeId} />
+        <CreateTargetChannelForm themeId={themeId} hasBot={Boolean(themeBot)} />
         {themeChannels.length === 0 ? (
           <EmptyState message="Нет ни одного целевого канала — добавьте выше, иначе публиковать некуда." />
         ) : (
@@ -1471,10 +1471,12 @@ function ThemeDetail({ themeId }: { themeId: string }) {
 
 export function Themes() {
   const { themeId } = useParams();
+  const navigate = useNavigate();
   const themes = useQuery(themesQuery());
 
   if (themes.isLoading) return <LoadingState />;
-  if (themes.error) return <ErrorState message={themes.error.message} />;
+  if (themes.error)
+    return <ErrorState message={errorText(themes.error)} onRetry={() => themes.refetch()} />;
 
   const list = themes.data ?? [];
 
@@ -1498,6 +1500,19 @@ export function Themes() {
       {list.length === 0 && (
         <Card>
           <EmptyState message="Тем пока нет — создайте первую кнопкой «+ Новая тема» выше." />
+        </Card>
+      )}
+
+      {/* Тема из URL не нашлась (ссылка из закладок или старого алерта на уже
+          удалённую тему). Раньше в этом случае под вкладками была немая пустота
+          и оператор не понимал, сломалась панель или тема исчезла — UX-аудит,
+          №13. */}
+      {!activeId && themeId && list.length > 0 && (
+        <Card className="flex flex-col items-start gap-3">
+          <EmptyState message="Такой темы нет — возможно, её удалили. Выберите тему вкладкой выше." />
+          <Button variant="secondary" onClick={() => navigate(`/themes/${list[0].id}`)}>
+            Открыть «{list[0].name}»
+          </Button>
         </Card>
       )}
 

@@ -18,6 +18,7 @@ const TelethonSessions = lazy(() =>
 const Review = lazy(() => import("./pages/Review").then((m) => ({ default: m.Review })));
 const Setup = lazy(() => import("./pages/Setup").then((m) => ({ default: m.Setup })));
 const Queue = lazy(() => import("./pages/Queue").then((m) => ({ default: m.Queue })));
+const NotFound = lazy(() => import("./pages/NotFound").then((m) => ({ default: m.NotFound })));
 
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
@@ -47,8 +48,10 @@ function AppRoutes() {
           <Route path="/queue" element={<Queue />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/setup" element={<Setup />} />
+          {/* Внутри layout: неизвестный адрес показывает 404, а не молча
+              подменяет дашборд, оставляя неверный URL (UX-аудит, №14). */}
+          <Route path="*" element={<NotFound />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );

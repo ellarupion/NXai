@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { channelBotsQuery, generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
-import { Button, Card, Callout, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { Button, Callout, Card, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { errorText } from "../lib/errors";
 import type { AdminAccount, ChannelBot, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
 function GeneralSettingsCard() {
   const queryClient = useQueryClient();
-  const { data, isLoading, error } = useQuery(generalSettingsQuery());
+  const { data, isLoading, error, refetch } = useQuery(generalSettingsQuery());
   const [tz, setTz] = useState("");
   const [cooldown, setCooldown] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -35,7 +36,7 @@ function GeneralSettingsCard() {
     <Card className="flex flex-col gap-4">
       <h2 className="text-sm font-semibold text-ink">Общие настройки</h2>
       {isLoading && <LoadingState />}
-      {error && <ErrorState message={error.message} />}
+      {error && <ErrorState message={errorText(error)} onRetry={() => refetch()} />}
       {data && (
         <form
           className="flex flex-col gap-4"
@@ -229,7 +230,9 @@ function AdminsCard() {
       </div>
 
       {admins.isLoading && <LoadingState />}
-      {admins.error && <ErrorState message={admins.error.message} />}
+      {admins.error && (
+        <ErrorState message={errorText(admins.error)} onRetry={() => admins.refetch()} />
+      )}
       {admins.data && (
         <ul className="flex flex-col divide-y divide-border">
           {admins.data.map((a) => (
@@ -459,7 +462,7 @@ export function Settings() {
   const me = useQuery(meQuery());
   const isSuper = Boolean(me.data?.is_superadmin);
   // Обычному админу /settings вернёт 403 — не дёргаем его вовсе.
-  const { data, isLoading, error } = useQuery({ ...settingsQuery(), enabled: isSuper });
+  const { data, isLoading, error, refetch } = useQuery({ ...settingsQuery(), enabled: isSuper });
 
   return (
     <div className="flex flex-col gap-6">
@@ -485,7 +488,7 @@ export function Settings() {
       <Card className="flex flex-col gap-6">
         <h2 className="text-sm font-semibold text-ink">LLM-ключи</h2>
         {isLoading && <LoadingState />}
-        {error && <ErrorState message={error.message} />}
+        {error && <ErrorState message={errorText(error)} onRetry={() => refetch()} />}
         {data && (
           <>
             <SecretField label="Anthropic API Key" field="anthropic_api_key" status={data.anthropic_api_key.source} />

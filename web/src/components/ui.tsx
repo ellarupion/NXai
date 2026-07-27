@@ -33,8 +33,21 @@ export function LoadingState({ label = "Загрузка…" }: { label?: string
   return <p className="py-8 text-center text-sm text-ink-muted">{label}</p>;
 }
 
-export function ErrorState({ message }: { message: string }) {
-  return <p className="rounded-lg bg-bad-soft p-3 text-sm text-bad">{message}</p>;
+export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-lg bg-bad-soft p-3 text-sm text-bad">
+      <p>{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="min-h-[32px] underline underline-offset-2 hover:no-underline"
+        >
+          Повторить
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function EmptyState({ message }: { message: string }) {

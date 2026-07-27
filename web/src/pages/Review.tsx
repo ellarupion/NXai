@@ -2,16 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { pendingReviewQuery, themesQuery } from "../api/queries";
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Input,
-  LoadingState,
-  Select,
-  Textarea,
-} from "../components/ui";
+import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, Textarea } from "../components/ui";
+import { errorText } from "../lib/errors";
 import type { GeneratedPost, PendingReviewPost } from "../types";
 
 function GenerateForm() {
@@ -302,7 +294,7 @@ function PendingReviewCard({ post }: { post: PendingReviewPost }) {
 }
 
 export function Review() {
-  const { data, isLoading, error } = useQuery(pendingReviewQuery());
+  const { data, isLoading, error, refetch } = useQuery(pendingReviewQuery());
   const queryClient = useQueryClient();
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   // В ref, а не в замыкании: слушатель клавиатуры вешается один раз, а верхний
@@ -357,7 +349,7 @@ export function Review() {
         </div>
         {hotkeyError && <p className="text-xs text-bad">{hotkeyError}</p>}
         {isLoading && <LoadingState />}
-        {error && <ErrorState message={error.message} />}
+        {error && <ErrorState message={errorText(error)} onRetry={() => refetch()} />}
         {data && data.length === 0 && (
           <Card>
             <EmptyState message="Нечего одобрять — сгенерируйте посты выше." />

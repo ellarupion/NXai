@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.candidate_post import CandidatePost
-from core.models.channel_bot import ChannelBot
+from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus, PoolPostStatus
 from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
@@ -65,13 +65,19 @@ def _forecast_slots(
     прогноз должен быть стабильным между запросами."""
     if available <= 0:
         return []
-    avg_minutes = (cadence["min_interval_minutes"] + cadence["max_interval_minutes"]) / 2
+    # Читаем через .get() с дефолтами: cadence — свободный JSONB, и неполный
+    # набор ключей (правка руками, старая запись, будущее расширение схемы)
+    # не должен ронять всю страницу «Очередь» пятисоткой — прогноз просто
+    # строится по умолчанию (UX-аудит, №12).
+    min_interval = cadence.get("min_interval_minutes", DEFAULT_CADENCE["min_interval_minutes"])
+    max_interval = cadence.get("max_interval_minutes", DEFAULT_CADENCE["max_interval_minutes"])
+    avg_minutes = (min_interval + max_interval) / 2
     step = timedelta(minutes=max(avg_minutes, 1))
     horizon = now + timedelta(hours=FORECAST_HOURS)
 
     cursor = now
     if last_published_at is not None:
-        min_next = last_published_at + timedelta(minutes=cadence["min_interval_minutes"])
+        min_next = last_published_at + timedelta(minutes=min_interval)
         cursor = max(cursor, min_next)
 
     slots: list[datetime] = []

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { telethonSessionsQuery } from "../api/queries";
 import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { errorText } from "../lib/errors";
 import type { TelethonLoginStartResult, TelethonLoginStepResult, TelethonSession } from "../types";
 
 type WizardStep = "phone" | "code" | "password";
@@ -247,7 +248,7 @@ function SessionRow({ telethonSession }: { telethonSession: TelethonSession }) {
 }
 
 export function TelethonSessions() {
-  const { data, isLoading, error } = useQuery(telethonSessionsQuery());
+  const { data, isLoading, error, refetch } = useQuery(telethonSessionsQuery());
 
   return (
     <div className="flex flex-col gap-6">
@@ -267,7 +268,7 @@ export function TelethonSessions() {
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-ink">Все аккаунты</h2>
         {isLoading && <LoadingState />}
-        {error && <ErrorState message={error.message} />}
+        {error && <ErrorState message={errorText(error)} onRetry={() => refetch()} />}
         {data && data.length === 0 && (
           <EmptyState message="Аккаунтов пока нет — заведите первый выше." />
         )}

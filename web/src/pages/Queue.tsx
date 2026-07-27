@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { Card, EmptyState, ErrorState, LoadingState } from "../components/ui";
+import { errorText } from "../lib/errors";
+import { formatMoment, formatSlot, useProjectTz } from "../lib/datetime";
 import { plural } from "../lib/plural";
 
 /* Очередь публикаций: что и примерно когда выйдет по каждой теме. Точных
@@ -32,22 +34,6 @@ const queueQuery = () => ({
   queryFn: () => api.get<{ themes: ThemeQueue[] }>("/queue/forecast"),
 });
 
-function formatSlot(iso: string): string {
-  const d = new Date(iso);
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  const hhmm = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === today.toDateString()) return `сегодня ~${hhmm}`;
-  if (d.toDateString() === tomorrow.toDateString()) return `завтра ~${hhmm}`;
-  return `${d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })} ~${hhmm}`;
-}
-
-function formatPast(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-}
-
 function DaysLeftBadge({ theme }: { theme: ThemeQueue }) {
   if (!theme.has_active_bot) {
     return (
@@ -70,7 +56,7 @@ function DaysLeftBadge({ theme }: { theme: ThemeQueue }) {
   );
 }
 
-function ThemeQueueCard({ theme }: { theme: ThemeQueue }) {
+function ThemeQueueCard({ theme, tz }: { theme: ThemeQueue; tz: string }) {
   const empty = theme.ready_posts + theme.pool_ready === 0;
   return (
     <Card className="flex flex-col gap-3">
@@ -114,7 +100,7 @@ function ThemeQueueCard({ theme }: { theme: ThemeQueue }) {
                 key={i}
                 className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-xs tabular-nums text-ink-muted"
               >
-                {formatSlot(slot)}
+                {formatSlot(slot, tz)}
               </span>
             ))}
           </div>
@@ -131,7 +117,7 @@ function ThemeQueueCard({ theme }: { theme: ThemeQueue }) {
               <li key={i} className="flex items-center justify-between gap-3 py-1.5">
                 <span className="truncate text-xs text-ink-muted">{r.preview || r.channel_title}</span>
                 <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
-                  {formatPast(r.published_at)}
+                  {formatMoment(r.published_at, tz)}
                 </span>
               </li>
             ))}
@@ -143,7 +129,8 @@ function ThemeQueueCard({ theme }: { theme: ThemeQueue }) {
 }
 
 export function Queue() {
-  const { data, isLoading, error } = useQuery(queueQuery());
+  const { data, isLoading, error, refetch } = useQuery(queueQuery());
+  const tz = useProjectTz();
 
   return (
     <div className="flex flex-col gap-6">
@@ -153,17 +140,24 @@ export function Queue() {
           Что и примерно когда выйдет по каждой теме. Времена ориентировочные —
           система нарочно публикует с живым разбросом, а не по секундам.
         </p>
+        {/* Пояс подписан явно: тихие часы бот считает именно в нём, и без
+            подписи слот «завтра ~05:30» читался как нарушение тишины 23–08,
+            хотя это 08:30 по проекту (UX-аудит, №11). */}
+        <p className="mt-1 text-xs text-ink-muted">
+          Время указано по часовому поясу проекта:{" "}
+          <span className="font-mono text-ink">{tz}</span> — в нём же считаются тихие часы.
+        </p>
       </div>
 
       {isLoading && <LoadingState />}
-      {error && <ErrorState message={error.message} />}
+      {error && <ErrorState message={errorText(error)} onRetry={() => refetch()} />}
       {data && data.themes.length === 0 && (
         <Card>
           <EmptyState message="Активных тем нет — создайте тему, и здесь появится её расписание." />
         </Card>
       )}
       {data?.themes.map((theme) => (
-        <ThemeQueueCard key={theme.theme_id} theme={theme} />
+        <ThemeQueueCard key={theme.theme_id} theme={theme} tz={tz} />
       ))}
     </div>
   );
