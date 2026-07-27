@@ -101,7 +101,7 @@ function OnboardingCard() {
         </div>
         <Link
           to="/setup"
-          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong sm:min-h-0"
         >
           Продолжить настройку (шаг {doneCount + 1} из {data.steps.length})
         </Link>
@@ -149,7 +149,7 @@ function AlertLine({ alert }: { alert: Alert }) {
       {href && label && (
         <Link
           to={href}
-          className="shrink-0 rounded-lg border border-current px-2 py-1 text-xs font-medium hover:opacity-80"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-lg border border-current px-2.5 py-1 text-xs font-medium hover:opacity-80 sm:min-h-0"
         >
           {label}
         </Link>
@@ -214,7 +214,7 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
           </span>
           <Link
             to="/review"
-            className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:bg-accent-strong sm:min-h-0"
           >
             К проверке
           </Link>

@@ -12,7 +12,7 @@ import {
   themeQuery,
   themesQuery,
 } from "../api/queries";
-import { Button, Callout, Card, EmptyState, ErrorState, Input, LoadingState, Select, StatusBadge, Textarea } from "../components/ui";
+import { Button, Callout, Card, Checkbox, EmptyState, ErrorState, Input, LoadingState, Select, StatusBadge, TextAction, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { PersonaEditor, type PersonaValue } from "../components/PersonaEditor";
 import { TrendsCard } from "./Dashboard";
@@ -140,21 +140,15 @@ function ThemeHeader({ theme }: { theme: Theme }) {
           <StatusBadge active={theme.is_active} />
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setEditing((v) => !v)}
-            className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
-          >
+          <TextAction onClick={() => setEditing((v) => !v)}>
             {editing ? "Скрыть" : "Переименовать / стиль"}
-          </button>
-          <button
-            type="button"
+          </TextAction>
+          <TextAction
             onClick={() => update.mutate({ is_active: !theme.is_active })}
             disabled={update.isPending}
-            className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
           >
             {theme.is_active ? "Выключить тему" : "Включить тему"}
-          </button>
+          </TextAction>
         </div>
       </div>
       {editing && (
@@ -219,19 +213,13 @@ function Toggle({
   disabled: boolean;
 }) {
   return (
-    <label className="flex items-start gap-3">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        disabled={disabled}
-        className="mt-0.5"
-      />
-      <span>
-        <span className="block text-sm font-medium text-ink">{label}</span>
-        <span className="block text-xs text-ink-muted">{hint}</span>
-      </span>
-    </label>
+    <Checkbox
+      label={label}
+      hint={hint}
+      checked={checked}
+      onChange={(e) => onChange(e.target.checked)}
+      disabled={disabled}
+    />
   );
 }
 
@@ -354,25 +342,18 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
         <AssignSessionCell channel={channel} />
       </div>
       <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={() => setActive.mutate(!channel.is_active)}
-          disabled={busy}
-          className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
-        >
+        <TextAction onClick={() => setActive.mutate(!channel.is_active)} disabled={busy}>
           {channel.is_active ? "Выключить" : "Включить"}
-        </button>
-        <button
-          type="button"
+        </TextAction>
+        <TextAction
           onClick={() => detach.mutate()}
           disabled={busy}
-          className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
           title="Источник останется в системе, но перестанет относиться к этой теме"
         >
           Открепить от темы
-        </button>
-        <button
-          type="button"
+        </TextAction>
+        <TextAction
+          className="text-bad hover:opacity-80"
           onClick={() => {
             if (
               window.confirm(
@@ -383,10 +364,9 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
             }
           }}
           disabled={busy}
-          className="text-xs text-bad underline decoration-dotted hover:opacity-80"
         >
           Удалить
-        </button>
+        </TextAction>
       </div>
       {error && <p className="text-xs text-bad">{error}</p>}
     </li>
@@ -695,7 +675,7 @@ function RejectionSignals({
                   type="button"
                   title={fixer.hint}
                   onClick={() => onApply(fixer.fix!(bot.persona_config ?? {}, bot.persona_prompt))}
-                  className="shrink-0 rounded-full bg-accent-soft px-2 py-0.5 font-medium text-accent hover:opacity-80"
+                  className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-accent-soft px-2.5 py-0.5 font-medium text-accent hover:opacity-80 sm:min-h-0"
                 >
                   Добавить правило
                 </button>
@@ -865,18 +845,17 @@ function ThemeBotPanel({ bot }: { bot: ChannelBot }) {
           </span>
         </label>
         {/* «Брать медиа» переехало в «Режим работы» выше — там его ищут. */}
-        <label
-          className="flex items-center gap-2 text-xs text-ink-muted"
-          title="Выключено — бот только готовит посты и шлёт их редактору, сам в канал ничего не ставит (и антиреклама не перекрывает). Включайте, когда рерайт устроит."
-        >
-          <input
-            type="checkbox"
-            checked={bot.autopublish_enabled}
-            disabled={busy}
-            onChange={(e) => update.mutate({ autopublish_enabled: e.target.checked })}
-          />
-          Автопубликация в канал{!bot.autopublish_enabled && " (выключена — бот сам ничего не постит)"}
-        </label>
+        <Checkbox
+          label="Автопубликация в канал"
+          hint={
+            bot.autopublish_enabled
+              ? "Бот сам ставит одобренные посты в канал по расписанию."
+              : "Выключена — бот только готовит посты и шлёт их редактору, сам в канал ничего не ставит (и антиреклама не перекрывает)."
+          }
+          checked={bot.autopublish_enabled}
+          disabled={busy}
+          onChange={(e) => update.mutate({ autopublish_enabled: e.target.checked })}
+        />
       </div>
 
       <CadenceEditor bot={bot} busy={busy} onSave={(cadence) => update.mutate({ cadence })} />
@@ -921,7 +900,7 @@ function ThemeBotPanel({ bot }: { bot: ChannelBot }) {
               setPersona({ config: bot.persona_config ?? {}, custom: bot.persona_prompt });
               setEditingPersona(true);
             }}
-            className="shrink-0 text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+            className="inline-flex min-h-11 shrink-0 items-center text-xs text-ink-muted underline decoration-dotted hover:text-ink sm:min-h-0"
           >
             Настроить персону
           </button>
@@ -984,14 +963,11 @@ function CrosspostEditor({ targetChannel }: { targetChannel: TargetChannel }) {
       <summary className="cursor-pointer select-none">Кросспост в VK / MAX</summary>
       <div className="mt-2 flex flex-col gap-3">
         <div className="flex flex-col gap-1">
-          <label className="flex items-center gap-2 text-ink">
-            <input
-              type="checkbox"
-              checked={Boolean(vk.enabled)}
-              onChange={(e) => setConfig({ ...config, vk: { ...vk, enabled: e.target.checked } })}
-            />
-            <span>VK</span>
-          </label>
+          <Checkbox
+            label="VK"
+            checked={Boolean(vk.enabled)}
+            onChange={(e) => setConfig({ ...config, vk: { ...vk, enabled: e.target.checked } })}
+          />
           <Input
             value={vk.access_token ?? ""}
             onChange={(e) => setConfig({ ...config, vk: { ...vk, access_token: e.target.value } })}
@@ -1004,14 +980,11 @@ function CrosspostEditor({ targetChannel }: { targetChannel: TargetChannel }) {
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="flex items-center gap-2 text-ink">
-            <input
-              type="checkbox"
-              checked={Boolean(max.enabled)}
-              onChange={(e) => setConfig({ ...config, max: { ...max, enabled: e.target.checked } })}
-            />
-            <span>MAX</span>
-          </label>
+          <Checkbox
+            label="MAX"
+            checked={Boolean(max.enabled)}
+            onChange={(e) => setConfig({ ...config, max: { ...max, enabled: e.target.checked } })}
+          />
           <Input
             value={max.access_token ?? ""}
             onChange={(e) => setConfig({ ...config, max: { ...max, access_token: e.target.value } })}
@@ -1390,7 +1363,7 @@ function ThemeDetail({ themeId }: { themeId: string }) {
           />
         ) : (
           <div className="flex items-start gap-3 opacity-50">
-            <input type="checkbox" checked={false} disabled className="mt-0.5" />
+            <input type="checkbox" checked={false} disabled className="mt-0.5 h-[18px] w-[18px] shrink-0" />
             <div className="flex flex-col">
               <span className="text-sm font-medium text-ink">
                 Брать фото и медиа из исходных постов
@@ -1403,21 +1376,26 @@ function ThemeDetail({ themeId }: { themeId: string }) {
           </div>
         )}
         <div className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={theme.data.digest_enabled}
-            onChange={(e) => updateMode.mutate({ digest_enabled: e.target.checked })}
-            disabled={updateMode.isPending}
-            className="mt-1"
-          />
+          {/* Чекбокс и подпись — в одном <label> (вся строка кликабельна,
+              высота от 44px), а <select> вынесен наружу: внутри label клик по
+              выбору часа переключал бы сам тумблер. UX-аудит, №16. */}
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 py-1 sm:min-h-0 sm:py-0">
+            <input
+              type="checkbox"
+              checked={theme.data.digest_enabled}
+              onChange={(e) => updateMode.mutate({ digest_enabled: e.target.checked })}
+              disabled={updateMode.isPending}
+              className="mt-1 h-[18px] w-[18px] shrink-0 cursor-pointer accent-[var(--color-accent)]"
+            />
+            <span className="text-sm font-medium text-ink whitespace-nowrap">Дайджест дня в</span>
+          </label>
           <div className="flex flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-ink">Дайджест дня в</span>
+            <div className="flex min-h-11 flex-wrap items-center gap-2 py-1 sm:min-h-0 sm:py-0">
               <select
                 value={theme.data.digest_hour}
                 onChange={(e) => updateMode.mutate({ digest_hour: Number(e.target.value) })}
                 disabled={updateMode.isPending || !theme.data.digest_enabled}
-                className="rounded border border-border bg-surface px-1 py-0.5 text-sm text-ink"
+                className="min-h-11 rounded border border-border bg-surface px-2 py-0.5 text-sm text-ink sm:min-h-0"
               >
                 {Array.from({ length: 24 }, (_, h) => (
                   <option key={h} value={h}>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { channelBotsQuery, generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
-import { Button, Callout, Card, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { Button, Callout, Card, Checkbox, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
 import { errorText } from "../lib/errors";
 import type { AdminAccount, ChannelBot, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
@@ -295,10 +295,12 @@ function AdminsCard() {
             className="flex-1"
           />
         </div>
-        <label className="flex items-center gap-2 text-xs text-ink-muted">
-          <input type="checkbox" checked={isSuper} onChange={(e) => setIsSuper(e.target.checked)} />
-          Суперадмин — получит доступ к ключам, ботам и управлению учётками
-        </label>
+        <Checkbox
+          label="Суперадмин"
+          hint="Получит доступ к ключам, ботам и управлению учётками"
+          checked={isSuper}
+          onChange={(e) => setIsSuper(e.target.checked)}
+        />
         <Button type="submit" disabled={create.isPending || !username.trim() || !password} className="self-start">
           Создать
         </Button>

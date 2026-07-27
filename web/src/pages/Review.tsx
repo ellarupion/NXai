@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { pendingReviewQuery, themesQuery } from "../api/queries";
-import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, Textarea } from "../components/ui";
+import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, TextAction, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
+import { plural } from "../lib/plural";
 import type { GeneratedPost, PendingReviewPost } from "../types";
 
 function GenerateForm({ themeId }: { themeId: string }) {
@@ -231,24 +232,18 @@ function PendingReviewCard({
         <>
           <p className="whitespace-pre-wrap text-sm text-ink">{post.rewritten_text}</p>
 
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={() => setShowRaw((v) => !v)}
-              className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
-            >
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            <TextAction onClick={() => setShowRaw((v) => !v)}>
               {showRaw ? "Скрыть оригинал" : "Показать оригинал"}
-            </button>
-            <button
-              type="button"
+            </TextAction>
+            <TextAction
               onClick={() => {
                 setDraft(post.rewritten_text);
                 setEditing(true);
               }}
-              className="text-xs text-ink-muted underline decoration-dotted hover:text-ink"
             >
               Редактировать
-            </button>
+            </TextAction>
           </div>
           {showRaw && (
             <p className="whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs text-ink-muted">
@@ -268,7 +263,7 @@ function PendingReviewCard({
                     type="button"
                     disabled={busy}
                     onClick={() => reject.mutate(r.slug)}
-                    className="rounded-full bg-bad-soft px-3 py-1 text-xs font-medium text-bad hover:opacity-80"
+                    className="inline-flex min-h-11 items-center rounded-full bg-bad-soft px-3 py-1 text-xs font-medium text-bad hover:opacity-80 sm:min-h-0"
                   >
                     {r.label}
                   </button>
@@ -277,14 +272,14 @@ function PendingReviewCard({
                   type="button"
                   disabled={busy}
                   onClick={() => reject.mutate(null)}
-                  className="rounded-full bg-surface-2 px-3 py-1 text-xs text-ink-muted hover:text-ink"
+                  className="inline-flex min-h-11 items-center rounded-full bg-surface-2 px-3 py-1 text-xs text-ink-muted hover:text-ink sm:min-h-0"
                 >
                   Без причины
                 </button>
                 <button
                   type="button"
                   onClick={() => setChoosingReason(false)}
-                  className="rounded-full px-3 py-1 text-xs text-ink-muted underline decoration-dotted hover:text-ink"
+                  className="inline-flex min-h-11 items-center rounded-full px-3 py-1 text-xs text-ink-muted underline decoration-dotted hover:text-ink sm:min-h-0"
                 >
                   Отмена
                 </button>
@@ -382,6 +377,14 @@ export function Review() {
      и «разобрать топ-5 и хватит» было невозможно — приходилось просматривать
      все, чтобы не пропустить залётный пост (UX-аудит, №7). */
   const [sortBy, setSortBy] = useState<"score" | "new">("score");
+  /* На телефоне очередь из 20 карточек — это лента почти в 6000px, пролистать
+     её до нужного поста невозможно (UX-аудит, №17). Показываем по одному: сразу
+     после решения карточка уходит из списка, и следующий пост встаёт на её
+     место — разбор превращается в стопку, а не в скроллинг. На десктопе, где
+     список обозрим, по умолчанию остаётся лента. */
+  const [oneByOne, setOneByOne] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches,
+  );
   const { data, isLoading, error, refetch } = useQuery(pendingReviewQuery(themeId || undefined));
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [approved, setApproved] = useState<PendingReviewPost | null>(null);
@@ -475,12 +478,19 @@ export function Review() {
           <h2 className="text-sm font-semibold text-ink">
             На одобрении{visible.length > 0 && ` (${visible.length})`}
           </h2>
-          {visible.length > 0 && (
-            <span className="text-xs text-ink-muted">
-              Клавиши: <kbd className="rounded border border-border px-1">A</kbd> — одобрить,{" "}
-              <kbd className="rounded border border-border px-1">D</kbd> — отклонить верхний пост
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {visible.length > 1 && (
+              <TextAction onClick={() => setOneByOne((v) => !v)}>
+                {oneByOne ? "Показать списком" : "Разбирать по одному"}
+              </TextAction>
+            )}
+            {visible.length > 0 && (
+              <span className="hidden text-xs text-ink-muted sm:inline">
+                Клавиши: <kbd className="rounded border border-border px-1">A</kbd> — одобрить,{" "}
+                <kbd className="rounded border border-border px-1">D</kbd> — отклонить верхний пост
+              </span>
+            )}
+          </div>
         </div>
 
         {approved && <UndoBar post={approved} onDone={() => setApproved(null)} />}
@@ -499,7 +509,7 @@ export function Review() {
             />
           </Card>
         )}
-        {visible.map((post) => (
+        {(oneByOne ? visible.slice(0, 1) : visible).map((post) => (
           <PendingReviewCard
             key={post.candidate_id}
             post={post}
@@ -507,6 +517,14 @@ export function Review() {
             onApproved={setApproved}
           />
         ))}
+
+        {oneByOne && visible.length > 1 && (
+          <p className="text-center text-xs text-ink-muted">
+            Дальше в очереди ещё {visible.length - 1}{" "}
+            {plural(visible.length - 1, "пост", "поста", "постов")}. Решите по этому — следующий
+            встанет на его место.
+          </p>
+        )}
       </div>
     </div>
   );

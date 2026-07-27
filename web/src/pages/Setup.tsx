@@ -473,7 +473,7 @@ export function Setup() {
               type="button"
               onClick={() => setManualStep(key)}
               className={[
-                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                "flex min-h-11 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
                 active
                   ? "bg-accent text-accent-ink"
                   : done

@@ -80,6 +80,54 @@ export function Button({
   );
 }
 
+/* Тач-цели (UX-аудит, №16). Рекомендованный минимум для пальца — 44px, а у нас
+   нативные чекбоксы рисовались 13×13, и текстовые действия-ссылки — высотой 16px.
+   На мышке это норма, на телефоне — промах через раз. Ниже два примитива,
+   которые растягивают ЗОНУ НАЖАТИЯ на мобильном, не раздувая вид на десктопе. */
+
+/** Чекбокс с увеличенной зоной нажатия. Сам квадратик крупнее (18px), а строка
+ *  целиком кликабельна и на мобильном имеет высоту от 44px. */
+export function Checkbox({
+  label,
+  hint,
+  className = "",
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; hint?: ReactNode }) {
+  return (
+    <label
+      className={`flex min-h-11 cursor-pointer items-start gap-3 py-1 sm:min-h-0 sm:py-0 ${className}`}
+    >
+      <input
+        type="checkbox"
+        {...props}
+        className="mt-0.5 h-[18px] w-[18px] shrink-0 cursor-pointer accent-[var(--color-accent)]"
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-sm font-medium text-ink">{label}</span>
+        {hint && <span className="text-xs text-ink-muted">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+/** Текстовое действие-ссылка (пунктирное подчёркивание). На мобильном добирает
+ *  высоту до 44px, на десктопе остаётся компактной строкой. */
+export function TextAction({
+  className = "",
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...props}
+      className={`inline-flex min-h-11 items-center text-xs text-ink-muted underline decoration-dotted underline-offset-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input

@@ -63,7 +63,7 @@ function ThemeQueueCard({ theme, tz }: { theme: ThemeQueue; tz: string }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Link
           to={`/themes/${theme.theme_id}`}
-          className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-accent"
+          className="inline-flex min-h-11 items-center font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-accent sm:min-h-0"
         >
           {theme.theme_name}
         </Link>
@@ -80,11 +80,14 @@ function ThemeQueueCard({ theme, tz }: { theme: ThemeQueue; tz: string }) {
       {empty && (
         <p className="text-sm text-ink-muted">
           Публиковать нечего.{" "}
-          <Link to="/review" className="text-accent underline underline-offset-2">
+          <Link to="/review" className="inline-flex min-h-11 items-center text-accent underline underline-offset-2 sm:min-h-0">
             Сделайте посты
           </Link>{" "}
           или{" "}
-          <Link to={`/themes/${theme.theme_id}`} className="text-accent underline underline-offset-2">
+          <Link
+            to={`/themes/${theme.theme_id}`}
+            className="inline-flex min-h-11 items-center text-accent underline underline-offset-2 sm:min-h-0"
+          >
             пополните запас
           </Link>
           .
