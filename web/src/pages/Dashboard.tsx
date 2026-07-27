@@ -29,7 +29,15 @@ function EngagementCard() {
 
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-ink">Как заходят посты</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink">Как заходят посты</h2>
+        <Link
+          to="/publications"
+          className="inline-flex min-h-11 items-center text-xs text-accent underline underline-offset-2 sm:min-h-0"
+        >
+          Вся лента публикаций
+        </Link>
+      </div>
 
       {!hasRows && !data.metrics_configured && (
         <p className="text-sm text-ink-muted">

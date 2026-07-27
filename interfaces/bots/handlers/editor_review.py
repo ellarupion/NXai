@@ -24,6 +24,7 @@ from core.db import get_session_factory
 from core.logging import get_logger
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole
+from core.services.persona_learning import remember_good_example
 from core.services.review import (
     ReviewError,
     approve_candidate,
@@ -38,9 +39,6 @@ router = Router(name="editor-review")
 CB_APPROVE = "ed_ok"
 CB_REJECT = "ed_no"
 CB_FIX = "ed_fx"
-
-# Сколько правок редактора бот держит в личности как примеры «пиши так».
-MAX_LEARNED_EXAMPLES = 5
 
 # chat_id -> candidate_id: редактор нажал «Поправить», следующее сообщение —
 # исправленный текст. In-memory: незавершённая правка после рестарта процесса
@@ -146,21 +144,6 @@ async def on_fix(callback: CallbackQuery, bot_role: BotRole, theme_id) -> None:
     )
 
 
-async def _learn_from_fix(session: AsyncSession, theme_id, fixed_text: str) -> None:
-    """Запоминание правки в личности: исправленный редактором текст становится
-    few-shot примером «пиши так» (persona_config.examples_good, новые вытесняют
-    старые, максимум MAX_LEARNED_EXAMPLES) — компилятор персоны
-    (core/services/persona.py) подставит его в следующие рерайты."""
-    bot = await session.scalar(
-        select(ChannelBot).where(ChannelBot.theme_id == theme_id, ChannelBot.role == BotRole.THEME)
-    )
-    if bot is None:
-        return
-    config = dict(bot.persona_config or {})
-    examples = [e for e in (config.get("examples_good") or []) if e != fixed_text]
-    examples.append(fixed_text)
-    config["examples_good"] = examples[-MAX_LEARNED_EXAMPLES:]
-    bot.persona_config = config
 
 
 @router.message(F.text, lambda m: m.chat.id in _pending_fixes)
@@ -176,7 +159,7 @@ async def on_fix_text(message: Message, bot_role: BotRole, theme_id) -> None:
             return
         try:
             await edit_candidate_text(session, candidate_id, message.text)
-            await _learn_from_fix(session, theme_id, message.text.strip())
+            await remember_good_example(session, theme_id, message.text)
             await session.commit()
         except ReviewError as exc:
             await message.answer(f"Не удалось сохранить: {exc}")

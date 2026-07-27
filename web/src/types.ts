@@ -253,3 +253,33 @@ export interface Alert {
   theme_id: string | null;
   source_channel_id: string | null;
 }
+
+/* Лента вышедшего (страница «Публикации»). Собирает публикацию обратно в
+   цепочку: что вышло -> из какого кандидата -> из какого источника -> какой
+   персоной переписано -> как зашло. */
+export interface PublicationItem {
+  id: string;
+  published_at: string;
+  theme_id: string;
+  theme_name: string;
+  channel_title: string;
+  channel_tg_chat_id: number;
+  tg_message_id: number;
+  kind: "candidate" | "pool";
+  is_ad_cover: boolean;
+  text: string;
+  source_channel_id: string | null;
+  source_channel_title: string | null;
+  source_channel_username: string | null;
+  source_channel_active: boolean | null;
+  raw_text: string | null;
+  score: number | null;
+  persona_prompt_used: string | null;
+  views: number | null;
+  forwards: number | null;
+}
+
+export interface PublicationsPage {
+  items: PublicationItem[];
+  has_more: boolean;
+}

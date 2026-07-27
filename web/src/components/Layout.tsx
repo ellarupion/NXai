@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: "/telethon-sessions", label: "Аккаунты" },
   { to: "/review", label: "Проверка" },
   { to: "/queue", label: "Очередь" },
+  { to: "/publications", label: "Публикации" },
   { to: "/settings", label: "Настройки" },
 ];
 

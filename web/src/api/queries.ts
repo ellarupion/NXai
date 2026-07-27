@@ -9,6 +9,7 @@ import type {
   Onboarding,
   PendingReviewPost,
   PoolPost,
+  PublicationsPage,
   SettingsStatus,
   SourceChannel,
   TargetChannel,
@@ -104,3 +105,22 @@ export const engagementQuery = () => ({
   queryKey: ["engagement"],
   queryFn: () => api.get<Engagement>("/dashboard/engagement"),
 });
+
+export const publicationsQuery = (params: {
+  themeId?: string;
+  sourceChannelId?: string;
+  days?: number;
+  limit?: number;
+  offset?: number;
+}) => {
+  const q = new URLSearchParams();
+  if (params.themeId) q.set("theme_id", params.themeId);
+  if (params.sourceChannelId) q.set("source_channel_id", params.sourceChannelId);
+  if (params.days) q.set("days", String(params.days));
+  q.set("limit", String(params.limit ?? 20));
+  q.set("offset", String(params.offset ?? 0));
+  return {
+    queryKey: ["publications", params],
+    queryFn: () => api.get<PublicationsPage>(`/publications?${q.toString()}`),
+  };
+};
