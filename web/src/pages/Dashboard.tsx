@@ -124,6 +124,11 @@ const ALERT_LABELS: Record<string, string> = {
   pending_review_stale: "К проверке",
 };
 
+/* Категории, которые означают «тему не достроили», а не «тема сломалась».
+   Их создаёт сам факт отсутствия бота/канала — до конца настройки они висят
+   постоянно и потому не должны кричать наравне с реальными сбоями. */
+const SETUP_CATEGORIES = new Set(["missing_bot", "missing_target_channel"]);
+
 function alertHref(alert: Alert): string | null {
   if (alert.category === "theme_inactive" || alert.category === "pending_review_stale") {
     return "/review";
@@ -183,6 +188,18 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
     }
   }
 
+  /* Недостроенная тема (нет бота и/или канала) — это не авария, а незаконченная
+     настройка: она не изменится сама и не требует действия сегодня. При шести
+     темах такие давали 10+ красных блоков и топили единственное живое действие
+     наверху (UX-аудит, №5). Прячем их под одну строку, а на виду оставляем
+     темы, которые НАСТРОЕНЫ, но сломались, — вот там нужно вмешательство. */
+  const unfinished: Array<[string, Alert[]]> = [];
+  const broken: Array<[string, Alert[]]> = [];
+  for (const entry of byTheme.entries()) {
+    const onlySetup = entry[1].every((a) => SETUP_CATEGORIES.has(a.category));
+    (onlySetup ? unfinished : broken).push(entry);
+  }
+
   const nothingToDo = pendingReviewCount === 0 && critical.length === 0;
 
   return (
@@ -208,9 +225,9 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
         <p className="text-sm text-good">Всё в порядке — вмешательство не требуется.</p>
       )}
 
-      {(byTheme.size > 0 || noTheme.length > 0) && (
+      {(broken.length > 0 || unfinished.length > 0 || noTheme.length > 0) && (
         <div className="flex flex-col gap-4">
-          {[...byTheme.entries()].map(([themeId, list]) => (
+          {broken.map(([themeId, list]) => (
             <div key={themeId}>
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                 {themeNameById.get(themeId) ?? "Тема"}
@@ -222,17 +239,49 @@ function AttentionSection({ pendingReviewCount }: { pendingReviewCount: number }
               </ul>
             </div>
           ))}
+
+          {unfinished.length > 0 && (
+            <details>
+              <summary className="cursor-pointer select-none text-xs text-ink-muted hover:text-ink">
+                {unfinished.length}{" "}
+                {plural(unfinished.length, "тема", "темы", "тем")}{" "}
+                {plural(unfinished.length, "не достроена", "не достроены", "не достроены")} — нет
+                бота или канала
+              </summary>
+              <div className="mt-2 flex flex-col gap-3">
+                {unfinished.map(([themeId, list]) => (
+                  <div key={themeId}>
+                    <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                      {themeNameById.get(themeId) ?? "Тема"}
+                    </h3>
+                    <ul className="flex flex-col gap-2">
+                      {list.map((a, i) => (
+                        <AlertLine key={i} alert={a} />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {/* Системное НЕ прячем: мёртвый планировщик означает, что не выходит
+              вообще ничего. Но сворачиваем в одну строку — три одинаковых
+              красных блока занимали пол-экрана, не добавляя информации. */}
           {noTheme.length > 0 && (
-            <div>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                Система
-              </h3>
-              <ul className="flex flex-col gap-2">
+            <details className="rounded-lg bg-bad-soft p-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-bad">
+                {noTheme.length}{" "}
+                {plural(noTheme.length, "фоновый процесс", "фоновых процесса", "фоновых процессов")}{" "}
+                {plural(noTheme.length, "не на связи", "не на связи", "не на связи")} — публикация
+                и сбор постов могут стоять
+              </summary>
+              <ul className="mt-2 flex flex-col gap-2">
                 {noTheme.map((a, i) => (
                   <AlertLine key={i} alert={a} />
                 ))}
               </ul>
-            </div>
+            </details>
           )}
         </div>
       )}

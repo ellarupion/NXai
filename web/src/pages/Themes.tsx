@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
@@ -1495,10 +1495,46 @@ function ThemeDetail({ themeId }: { themeId: string }) {
 
 // ===== Точка входа =====
 
+/* Какую тему открыть, если в адресе её нет. Раньше брали list[0], а список
+   отсортирован по имени — открывалась алфавитно-первая, то есть обычно
+   тестовая или брошенная, и каждый заход начинался с лишнего клика
+   (UX-аудит, №4). Порядок предпочтений: последняя открытая -> первая
+   полностью укомплектованная (бот + канал) -> первая активная -> первая
+   любая. */
+const LAST_THEME_KEY = "nxai_last_theme";
+
+function pickDefaultTheme(
+  list: Theme[],
+  bots: ChannelBot[],
+  channels: TargetChannel[],
+): string | null {
+  if (list.length === 0) return null;
+
+  const remembered = localStorage.getItem(LAST_THEME_KEY);
+  if (remembered && list.some((t) => t.id === remembered)) return remembered;
+
+  const hasBot = new Set(
+    bots.filter((b) => b.role === "theme" && b.is_active && b.theme_id).map((b) => b.theme_id!),
+  );
+  const hasChannel = new Set(channels.filter((c) => c.is_active).map((c) => c.theme_id));
+
+  const equipped = list.find((t) => t.is_active && hasBot.has(t.id) && hasChannel.has(t.id));
+  if (equipped) return equipped.id;
+
+  return (list.find((t) => t.is_active) ?? list[0]).id;
+}
+
 export function Themes() {
   const { themeId } = useParams();
   const navigate = useNavigate();
   const themes = useQuery(themesQuery());
+  const bots = useQuery(channelBotsQuery());
+  const channels = useQuery(targetChannelsQuery());
+
+  // Запоминаем открытую тему — со следующего захода вернёмся в неё.
+  useEffect(() => {
+    if (themeId) localStorage.setItem(LAST_THEME_KEY, themeId);
+  }, [themeId]);
 
   if (themes.isLoading) return <LoadingState />;
   if (themes.error)
@@ -1507,7 +1543,11 @@ export function Themes() {
   const list = themes.data ?? [];
 
   if (!themeId && list.length > 0) {
-    return <Navigate to={`/themes/${list[0].id}`} replace />;
+    // Ждём боты/каналы: без них выбор укомплектованной темы не сделать, а
+    // редирект необратим — промахнёмся и оператор снова не там, где нужно.
+    if (bots.isLoading || channels.isLoading) return <LoadingState />;
+    const target = pickDefaultTheme(list, bots.data ?? [], channels.data ?? []);
+    if (target) return <Navigate to={`/themes/${target}`} replace />;
   }
 
   const activeId = themeId && list.some((t) => t.id === themeId) ? themeId : null;

@@ -132,6 +132,15 @@ export function Queue() {
   const { data, isLoading, error, refetch } = useQuery(queueQuery());
   const tz = useProjectTz();
 
+  /* Наверх — у кого контент кончается раньше: это и есть вопрос, ради
+     которого открывают страницу. days_left=null у темы с ботом означает
+     «темп не задан» — такие после тех, у кого счёт идёт на дни. */
+  const themes = [...(data?.themes ?? [])].sort(
+    (a, b) => (a.days_left ?? Number.POSITIVE_INFINITY) - (b.days_left ?? Number.POSITIVE_INFINITY),
+  );
+  const live = themes.filter((t) => t.has_active_bot);
+  const idle = themes.filter((t) => !t.has_active_bot);
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -156,9 +165,27 @@ export function Queue() {
           <EmptyState message="Активных тем нет — создайте тему, и здесь появится её расписание." />
         </Card>
       )}
-      {data?.themes.map((theme) => (
+
+      {live.map((theme) => (
         <ThemeQueueCard key={theme.theme_id} theme={theme} tz={tz} />
       ))}
+
+      {/* Темы без бота не публикуют ничего и не изменятся сами — держать их
+          вперемешку с работающими значило прятать рабочую тему в конец списка
+          (UX-аудит, №6). Сворачиваем, но не убираем: их видно и можно открыть. */}
+      {idle.length > 0 && (
+        <details>
+          <summary className="cursor-pointer select-none text-sm text-ink-muted hover:text-ink">
+            Ещё {idle.length} {plural(idle.length, "тема", "темы", "тем")} без активного бота —
+            они ничего не публикуют
+          </summary>
+          <div className="mt-3 flex flex-col gap-6">
+            {idle.map((theme) => (
+              <ThemeQueueCard key={theme.theme_id} theme={theme} tz={tz} />
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
