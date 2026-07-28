@@ -64,6 +64,12 @@ class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # поправить в персоне. NULL — отклонён без причины или не отклонялся.
     rejection_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
+    # Подтема из Theme.rubrics, проставляется классификатором при рерайте
+    # (core/services/rubrics.py). Строкой, а не FK: рубрики редактируются
+    # свободно, и переименование не должно каскадом переписывать историю —
+    # старое значение просто перестаёт совпадать со списком темы.
+    rubric: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     # Self-FK: если дедуп находит более ранний кандидат с cosine similarity выше
     # HIGH_SIMILARITY_THRESHOLD, текущий помечается DUPLICATE и указывает на

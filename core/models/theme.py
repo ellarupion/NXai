@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -34,6 +35,15 @@ class Theme(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # премодерируемые (безопасный дефолт); server_default="false" — уже
     # существующие темы сохраняют прежнее поведение прямого автопаблиша.
     premoderation: Mapped[bool] = mapped_column(Boolean, default=True, server_default="false")
+
+    # Подтемы внутри ниши: «деньги», «отношения», «здоровье». Тема — это ниша
+    # целиком, но контент внутри неё разный, и без деления канал легко выдаёт
+    # день из пяти постов про одно и то же: источники в один день пишут об
+    # одном, а скоринг это усиливает (виральное в нише виральное сразу у всех).
+    # Планировщик использует рубрики, чтобы чередовать подтемы
+    # (core/services/scheduler_pool.py), а классификатор проставляет их постам
+    # (core/services/rubrics.py). Пустой список — деление выключено.
+    rubrics: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
 
     source_channels: Mapped[list["SourceChannel"]] = relationship(back_populates="theme")
     target_channels: Mapped[list["TargetChannel"]] = relationship(back_populates="theme")

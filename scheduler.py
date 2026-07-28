@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 from telethon.errors import FloodWaitError
 
 from core.config import get_settings
@@ -59,6 +59,17 @@ logger = get_logger(__name__)
 BACKFILL_INTERVAL_MINUTES = 15
 SCORE_REFRESH_INTERVAL_MINUTES = 10
 DEDUP_REWRITE_INTERVAL_MINUTES = 5
+# Рерайт — единственная по-настоящему дорогая операция в системе (Sonnet на
+# каждый пост), и до этого лимита у неё не было вообще. Джоб брал ВСЕХ
+# SELECTED-кандидатов за тик: стоило порогу отбора стать проходимым, как
+# накопленные за недели кандидаты уходили в LLM одной пачкой. Два ограничителя:
+#   * сколько постов переписываем за один тик — потолок скорости трат;
+#   * сколько готовых постов держим про запас на тему — потолок смысла: писать
+#     больше, чем тема успеет опубликовать, значит платить за то, что протухнет
+#     в статусе REWRITTEN.
+REWRITE_BATCH_LIMIT = 5
+REWRITE_STOCK_DAYS = 2
+MIN_REWRITE_STOCK = 5
 PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
 HEARTBEAT_INTERVAL_SECONDS = 60
@@ -220,10 +231,31 @@ async def dedup_and_rewrite_job() -> None:
         llm = LLMClient(settings)
         embeddings = EmbeddingsClient(settings)
 
+        # Сколько готовых постов уже лежит по темам — темы с запасом на
+        # несколько дней вперёд в этот тик не трогаем вовсе.
+        stock_rows = await session.execute(
+            select(SourceChannel.theme_id, func.count())
+            .join(CandidatePost, CandidatePost.source_channel_id == SourceChannel.id)
+            .where(CandidatePost.status == CandidatePostStatus.REWRITTEN)
+            .group_by(SourceChannel.theme_id)
+        )
+        stock = dict(stock_rows.all())
+
+        cadence_rows = await session.execute(
+            select(ChannelBot.theme_id, ChannelBot.cadence).where(
+                ChannelBot.role == BotRole.THEME, ChannelBot.is_active.is_(True)
+            )
+        )
+        limits: dict = {}
+        for theme_id, cadence in cadence_rows.all():
+            per_day = int((cadence or {}).get("posts_per_day_target") or 0)
+            limits[theme_id] = max(per_day * REWRITE_STOCK_DAYS, MIN_REWRITE_STOCK)
+
         result = await session.execute(
             select(CandidatePost.id, SourceChannel.theme_id)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
             .where(CandidatePost.status == CandidatePostStatus.SELECTED)
+            .order_by(CandidatePost.score.desc().nulls_last())
         )
         # Скаляры, а не ORM-объекты: commit/rollback per-candidate экспайрит
         # объекты, и повторный доступ к их атрибутам ленивой подгрузкой упал бы
@@ -232,8 +264,19 @@ async def dedup_and_rewrite_job() -> None:
 
         dedup = DedupService(session, embeddings)
         rewrite = RewriteService(session, llm, embeddings)
+        skipped_stocked = 0
         for candidate_id, theme_id in rows:
             if theme_id is None:
+                continue
+            if rewritten >= REWRITE_BATCH_LIMIT:
+                logger.info(
+                    "scheduler.rewrite_batch_limit",
+                    limit=REWRITE_BATCH_LIMIT,
+                    pending=len(rows) - rewritten,
+                )
+                break
+            if stock.get(theme_id, 0) >= limits.get(theme_id, MIN_REWRITE_STOCK):
+                skipped_stocked += 1
                 continue
             # try/except покрывает и дедуп (Voyage API умеет падать так же, как
             # LLM), и рерайт; коммит на кандидата — ошибка на одном не теряет
@@ -280,6 +323,9 @@ async def dedup_and_rewrite_job() -> None:
                     if candidate is not None:
                         candidate.status = CandidatePostStatus.PENDING_REVIEW
                 rewritten += 1
+                # Учитываем в запасе темы сразу: иначе внутри одного тика
+                # лимит запаса не сработал бы и мы переписали бы всё подряд.
+                stock[theme_id] = stock.get(theme_id, 0) + 1
                 await session.commit()
                 # Карточка редактору в личку тем-бота (кнопки Одобрить/
                 # Поправить/Отклонить) — после коммита: пост уже в очереди,
@@ -318,8 +364,12 @@ async def dedup_and_rewrite_job() -> None:
                     session, format_error(theme.name if theme else "", "рерайте", str(exc))
                 )
 
-    if rewritten:
-        logger.info("scheduler.dedup_and_rewrite_done", rewritten=rewritten)
+    logger.info(
+        "scheduler.dedup_and_rewrite_done",
+        rewritten=rewritten,
+        skipped_stocked=skipped_stocked,
+        selected_total=len(rows),
+    )
 
 
 async def publish_pool_job() -> None:

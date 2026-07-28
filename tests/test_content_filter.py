@@ -101,3 +101,24 @@ def test_signals_are_reported_for_debugging():
     signals = ad_signals("Пиши в личку @expert_guy, запись на интенсив открыта")
     assert signals
     assert all(isinstance(s, str) and s for s in signals)
+
+
+# --- ограничители расхода на LLM ------------------------------------------
+
+def test_rewrite_has_batch_and_stock_limits():
+    """Рерайт — единственная дорогая операция (Sonnet на пост), и до этого
+    джоб брал ВСЕХ SELECTED-кандидатов за тик без ограничений. На проде это
+    вылилось в непрерывный расход: порог отбора стал проходимым, и недели
+    накопленных кандидатов ушли в LLM одной пачкой.
+
+    Тест сторожит оба потолка — скорости и смысла."""
+    import scheduler
+
+    assert scheduler.REWRITE_BATCH_LIMIT > 0
+    # Потолок скорости: сколько постов максимум уйдёт в LLM за час.
+    per_hour = scheduler.REWRITE_BATCH_LIMIT * (60 // scheduler.DEDUP_REWRITE_INTERVAL_MINUTES)
+    assert per_hour <= 120, f"{per_hour} рерайтов в час — это неконтролируемый расход"
+    # Потолок смысла: запас готовых постов не должен превышать нескольких дней
+    # публикации, иначе платим за то, что протухнет в статусе REWRITTEN.
+    assert scheduler.REWRITE_STOCK_DAYS <= 3
+    assert scheduler.MIN_REWRITE_STOCK >= 1
