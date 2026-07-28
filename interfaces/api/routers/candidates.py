@@ -62,6 +62,8 @@ class PendingReviewOut(BaseModel):
     score: float | None
     created_at: datetime
     has_media: bool
+    # None — у темы не заданы рубрики либо классификатор не отработал.
+    rubric: str | None = None
 
 
 @router.post("/generate", response_model=list[GeneratedPostOut])
@@ -124,6 +126,7 @@ async def list_pending_review(
             score=candidate.score,
             created_at=candidate.created_at,
             has_media=candidate.has_media,
+            rubric=candidate.rubric,
         )
         for candidate, source_channel, post_version in result.all()
     ]

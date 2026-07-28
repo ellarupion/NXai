@@ -9,6 +9,7 @@ export interface Theme {
   digest_enabled: boolean;
   digest_hour: number;
   premoderation: boolean;
+  rubrics: string[];
 }
 
 export type ThemeHealthStatus = "ok" | "warn" | "crit";
@@ -180,6 +181,8 @@ export interface PendingReviewPost {
   score: number | null;
   created_at: string;
   has_media: boolean;
+  // Подтема. null — рубрики у темы не заданы либо классификатор промолчал.
+  rubric: string | null;
 }
 
 export type PoolPostStatus = "ready" | "used";
@@ -275,6 +278,7 @@ export interface PublicationItem {
   raw_text: string | null;
   score: number | null;
   persona_prompt_used: string | null;
+  rubric: string | null;
   views: number | null;
   forwards: number | null;
 }

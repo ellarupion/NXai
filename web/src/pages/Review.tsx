@@ -200,6 +200,14 @@ function PendingReviewCard({
             {themeName ?? "без темы"}
           </span>
           <span className="text-sm font-medium text-ink">{post.source_channel_title}</span>
+          {post.rubric && (
+            <span
+              title="Подтема, к которой ИИ отнёс этот пост. По подтемам планировщик чередует выдачу, чтобы канал не уходил в один сюжет."
+              className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted"
+            >
+              {post.rubric}
+            </span>
+          )}
           {post.has_media && (
             <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted">
               📷 с фото

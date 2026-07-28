@@ -48,6 +48,7 @@ from core.services.media import download_candidate_photos
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
 from core.services.persona import build_persona_prompt
+from core.services import rubrics
 from core.services.rewrite import RewriteService
 from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
@@ -312,15 +313,21 @@ async def dedup_and_rewrite_job() -> None:
                         "а Telegram ограничивает подпись к фото 1024 символами. "
                         "Уложи весь пост не длиннее 900 символов."
                     )
-                await rewrite.generate(candidate_id, persona_prompt)
+                post_version = await rewrite.generate(candidate_id, persona_prompt)
                 # Премодерация: рерайт ждёт одобрения, если она включена у темы
                 # ИЛИ у бота задан редактор (указал редактора — посты идут ему,
                 # тот же переход, что в core/services/force_generate.py).
                 theme = await session.get(Theme, theme_id)
                 has_editor = channel_bot is not None and channel_bot.editor_chat_id is not None
-                if (theme is not None and theme.premoderation) or has_editor:
-                    candidate = await session.get(CandidatePost, candidate_id)
-                    if candidate is not None:
+                candidate = await session.get(CandidatePost, candidate_id)
+                if candidate is not None:
+                    # Рубрику определяем по УЖЕ переписанному тексту, а не по
+                    # исходнику: публикуем именно его, и чередование должно
+                    # опираться на то, что реально выйдет в канал.
+                    candidate.rubric = await rubrics.classify(
+                        session, theme_id, post_version.rewritten_text, llm=llm
+                    )
+                    if (theme is not None and theme.premoderation) or has_editor:
                         candidate.status = CandidatePostStatus.PENDING_REVIEW
                 rewritten += 1
                 # Учитываем в запасе темы сразу: иначе внутри одного тика

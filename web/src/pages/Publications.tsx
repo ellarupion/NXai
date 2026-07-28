@@ -97,6 +97,14 @@ function PublicationCard({ pub, tz }: { pub: PublicationItem; tz: string }) {
             {pub.theme_name}
           </Link>
           <span className="text-xs text-ink-muted">{pub.channel_title}</span>
+          {pub.rubric && (
+            <span
+              title="Подтема поста. По ним планировщик чередует выдачу — здесь видно, ровно ли она ложится."
+              className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-ink-muted"
+            >
+              {pub.rubric}
+            </span>
+          )}
           {pub.kind === "pool" && (
             <span
               title="Пост из собственного запаса темы, а не рерайт чужого."

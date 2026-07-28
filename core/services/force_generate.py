@@ -28,6 +28,7 @@ from core.models.source_channel import SourceChannel
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.persona import build_persona_prompt
+from core.services import rubrics
 from core.services.content_filter import AUTO_REASON_AD
 from core.services.rewrite import RewriteError, RewriteService
 
@@ -125,6 +126,10 @@ class ForceGenerateService:
                 continue
 
             candidate.status = CandidatePostStatus.PENDING_REVIEW
+            # По переписанному тексту, а не по исходнику — публиковать будем его.
+            candidate.rubric = await rubrics.classify(
+                self.session, theme_id, post_version.rewritten_text, llm=self.llm
+            )
             await self.session.flush()
 
             source_channel = await self.session.get(SourceChannel, candidate.source_channel_id)

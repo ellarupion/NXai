@@ -19,6 +19,7 @@ from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.theme import Theme
 from core.services.panel_settings import get_or_create_panel_settings
+from core.services.rubrics import MAX_RUBRICS, RubricError, suggest_rubrics
 from core.services.scheduler_pool import resolve_zoneinfo
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
@@ -34,6 +35,7 @@ class ThemeOut(BaseModel):
     digest_enabled: bool
     digest_hour: int
     premoderation: bool
+    rubrics: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -52,6 +54,7 @@ class ThemeUpdate(BaseModel):
     digest_enabled: bool | None = None
     digest_hour: int | None = None
     premoderation: bool | None = None
+    rubrics: list[str] | None = None
 
 
 @router.get("", response_model=list[ThemeOut])
@@ -102,10 +105,51 @@ async def update_theme(
         theme.digest_hour = payload.digest_hour
     if payload.premoderation is not None:
         theme.premoderation = payload.premoderation
+    if payload.rubrics is not None:
+        theme.rubrics = _clean_rubrics(payload.rubrics)
 
     await session.flush()
     await session.commit()
     return theme
+
+
+def _clean_rubrics(raw: list[str]) -> list[str]:
+    """Чистка списка от оператора: пустые, дубли, слишком длинные.
+
+    Дубли режем без учёта регистра — «Деньги» и «деньги» для классификатора
+    одна рубрика, но в списке выглядели бы как две, и чередование бы сломалось:
+    половина постов ушла бы в одну, половина в другую, а баланс считал бы их
+    разными подтемами."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        name = " ".join(str(item).split())[:64]
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        cleaned.append(name)
+    if len(cleaned) > MAX_RUBRICS:
+        raise HTTPException(
+            status_code=400, detail=f"Рубрик не может быть больше {MAX_RUBRICS}"
+        )
+    return cleaned
+
+
+class RubricSuggestOut(BaseModel):
+    rubrics: list[str]
+
+
+@router.post("/{theme_id}/rubrics/suggest", response_model=RubricSuggestOut)
+async def suggest_theme_rubrics(
+    theme_id: UUID, session: AsyncSession = Depends(get_db)
+) -> RubricSuggestOut:
+    """Подсказка, а не действие: список возвращается в панель, оператор правит
+    его руками и сохраняет обычным PUT. Сами по себе рубрики не применяются —
+    иначе одна неудачная выдача модели молча переразметила бы тему."""
+    try:
+        return RubricSuggestOut(rubrics=await suggest_rubrics(session, theme_id))
+    except RubricError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 class ThemeHealthStage(BaseModel):

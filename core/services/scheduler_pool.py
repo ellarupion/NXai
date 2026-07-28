@@ -20,6 +20,7 @@ from core.models.channel_bot import DEFAULT_CADENCE
 from core.models.enums import CandidatePostStatus, PoolPostStatus
 from core.models.pool_post import PoolPost
 from core.models.source_channel import SourceChannel
+from core.services import rubrics
 
 logger = get_logger(__name__)
 
@@ -129,6 +130,15 @@ class SchedulerPoolService:
         candidates = list(result.scalars().all())
         if not candidates:
             return None
+
+        # Сначала отсекаем по рубрикам, потом бросаем кубик внутри оставшихся.
+        # Порядок именно такой: балансировка решает, ПРО ЧТО следующий пост,
+        # скор — какой именно из постов на эту тему. Наоборот было бы хуже —
+        # взвешенный выбор из всех кандидатов почти всегда вытягивал бы
+        # рубрику, которая сейчас в моде у источников, и канал зацикливался бы
+        # ровно так, как жаловался оператор.
+        recent = await rubrics.recent_rubrics(self.session, theme_id)
+        candidates = rubrics.freshest_by_rubric(candidates, recent)
 
         weights = [max(c.score or 0.0, 0.01) for c in candidates]
         return random.choices(candidates, weights=weights, k=1)[0]

@@ -385,6 +385,147 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
    рекомендациями Telegram к уже добавленным источникам, которые строятся по
    пересечению аудиторий, а не по словам. Мёртвые каналы отсеиваются до
    показа, темп публикаций виден сразу. */
+/* Подтемы темы. Оператор жаловался, что канал «зацикливается»: пять постов
+   подряд про одно и то же. Причина не в скоринге как таковом — источники в
+   один день пишут об одном инфоповоде, и виральное в нише оказывается
+   виральным сразу у всех, так что отбор по виральности этот перекос усиливает.
+   Рубрики дают планировщику ось, по которой чередовать.
+
+   Список правится и сохраняется явно, отдельной кнопкой: рубрики меняют
+   раскладку всей темы, и автосохранение на каждый чих (как у тумблеров выше)
+   здесь неуместно — на полпути правки список бывает бессмысленным. */
+const MAX_RUBRICS = 8;
+
+function RubricsCard({ theme }: { theme: Theme }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const [rubrics, setRubrics] = useState<string[]>(theme.rubrics);
+  const [error, setError] = useState<string | null>(null);
+
+  // Тему переключили вкладкой — компонент переиспользуется, локальный список
+  // надо перечитать, иначе в новой теме показались бы рубрики предыдущей.
+  useEffect(() => {
+    setRubrics(theme.rubrics);
+    setDraft("");
+    setError(null);
+  }, [theme.id, theme.rubrics]);
+
+  const save = useMutation({
+    mutationFn: (next: string[]) => api.put<Theme>(`/themes/${theme.id}`, { rubrics: next }),
+    onSuccess: () => {
+      setError(null);
+      // ["themes"] префиксом накрывает и список тем, и карточку ["themes", id]:
+      // перечитается и то, и другое — а из перечитанного useEffect ниже
+      // пересобирает локальный список, поэтому «Сохранить» и гаснет.
+      queryClient.invalidateQueries({ queryKey: ["themes"] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
+  });
+
+  const suggest = useMutation({
+    mutationFn: () => api.post<{ rubrics: string[] }>(`/themes/${theme.id}/rubrics/suggest`),
+    onSuccess: (r) => {
+      setError(null);
+      setRubrics(r.rubrics);
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.message : "Не удалось подобрать подтемы"),
+  });
+
+  const dirty =
+    rubrics.length !== theme.rubrics.length ||
+    rubrics.some((r, i) => r !== theme.rubrics[i]);
+
+  const add = (value: string) => {
+    const name = value.trim();
+    if (!name) return;
+    if (rubrics.some((r) => r.toLowerCase() === name.toLowerCase())) return;
+    if (rubrics.length >= MAX_RUBRICS) {
+      setError(`Больше ${MAX_RUBRICS} подтем не будет работать: чередовать станет нечего`);
+      return;
+    }
+    setError(null);
+    setRubrics((prev) => [...prev, name]);
+  };
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-ink">Подтемы</h2>
+      <p className="text-xs text-ink-muted">
+        На что делится ниша: у мужского канала это деньги, отношения, здоровье, карьера.
+        Каждый готовый пост ИИ относит к одной из подтем, и планировщик старается не
+        ставить подряд две про одно и то же.
+      </p>
+
+      {rubrics.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {rubrics.map((r) => (
+            <span
+              key={r}
+              className="inline-flex min-h-11 items-center gap-2 rounded-full bg-surface-2 px-3 py-1 text-xs text-ink sm:min-h-0"
+            >
+              {r}
+              <button
+                type="button"
+                onClick={() => setRubrics((prev) => prev.filter((x) => x !== r))}
+                className="text-ink-muted hover:text-bad"
+                title="Убрать подтему"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {rubrics.length === 0 && (
+        <EmptyState message="Подтем нет — тема выдаёт всё подряд в порядке виральности. Это рабочий режим, но канал легко уходит в один сюжет на весь день." />
+      )}
+
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add(draft);
+          setDraft("");
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Своя подтема"
+          className="flex-1"
+        />
+        <Button type="submit" variant="secondary" disabled={!draft.trim()}>
+          Добавить
+        </Button>
+      </form>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => suggest.mutate()} disabled={suggest.isPending}>
+          {suggest.isPending ? "Подбираю…" : "Подобрать через ИИ"}
+        </Button>
+        {dirty && (
+          <>
+            <Button onClick={() => save.mutate(rubrics)} disabled={save.isPending}>
+              {save.isPending ? "Сохраняю…" : "Сохранить подтемы"}
+            </Button>
+            <TextAction onClick={() => setRubrics(theme.rubrics)}>Отменить правки</TextAction>
+          </>
+        )}
+      </div>
+
+      {dirty && (
+        <p className="text-xs text-ink-muted">
+          Изменения не сохранены. Уже размеченные посты сохранят старые подтемы — заново их
+          никто не переразмечает, чередование выровняется само за несколько выходов.
+        </p>
+      )}
+      {error && <p className="text-sm text-bad">{error}</p>}
+    </Card>
+  );
+}
+
 function DiscoverSourcesForm({ themeId }: { themeId: string }) {
   const queryClient = useQueryClient();
   const sessions = useQuery(telethonSessionsQuery());
@@ -1626,6 +1767,8 @@ function ThemeDetail({ themeId }: { themeId: string }) {
         </div>
         {modeError && <p className="text-sm text-bad">{modeError}</p>}
       </Card>
+
+      <RubricsCard theme={theme.data} />
 
       <Card className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-ink">Источники ({themeSources.length})</h2>

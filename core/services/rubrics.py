@@ -182,26 +182,36 @@ async def recent_rubrics(session: AsyncSession, theme_id: UUID, limit: int = REC
     return [r for r in rows if r]
 
 
-def pick_balanced(candidates: list, recent: list[str]) -> object | None:
-    """Из готовых к выходу постов выбирает тот, чья рубрика дольше не выходила.
+def freshest_by_rubric(candidates: list, recent: list[str]) -> list:
+    """Сужает список готовых постов до тех, чья рубрика дольше всех не выходила.
+
+    Возвращает ПОДМНОЖЕСТВО, а не один пост, и это принципиально: выбор внутри
+    темы взвешенно-случайный по скору (core/services/scheduler_pool.py), чтобы
+    порядок выхода не был предсказуемым. Верни мы отсюда конкретный пост —
+    рубрики бы выровнялись, но канал начал бы крутить строго лучший по скору
+    пост каждой рубрики по кругу. Поэтому здесь только отсев, а бросок кубика
+    остаётся за вызывающим.
 
     Не жёсткий запрет, а предпочтение: если все готовые посты одной рубрики,
-    выйдет пост этой рубрики, а не тишина. Пустая очередь хуже перекоса.
-    Посты без рубрики участвуют на общих основаниях — их «давность» считается
-    максимальной, чтобы неклассифицированное не залёживалось."""
-    if not candidates:
-        return None
-    if not recent:
-        return candidates[0]
+    вернётся весь список — выйдет пост этой рубрики, а не тишина. Пустая
+    очередь хуже перекоса.
+
+    Посты без рубрики считаются максимально «давними» — иначе тема, где
+    рубрики только что включили, встала бы: накопленное неклассифицированное
+    никогда не догнало бы свежее размеченное."""
+    if not candidates or not recent:
+        return list(candidates)
 
     def staleness(candidate) -> int:
         rubric = getattr(candidate, "rubric", None)
         if rubric is None:
             return len(recent) + 1
         try:
-            # Чем дальше рубрика в списке недавних, тем она «свежее» для выдачи.
+            # Индекс в списке недавних: 0 — вышла последней, то есть самая
+            # свежая и наименее желанная сейчас.
             return recent.index(rubric)
         except ValueError:
             return len(recent) + 1
 
-    return max(candidates, key=staleness)
+    best = max(staleness(c) for c in candidates)
+    return [c for c in candidates if staleness(c) == best]

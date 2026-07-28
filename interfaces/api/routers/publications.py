@@ -63,6 +63,9 @@ class PublicationOut(BaseModel):
     raw_text: str | None = None
     score: float | None = None
     persona_prompt_used: str | None = None
+    # Подтема, к которой отнесён пост. None — рубрик у темы нет или пост вышел
+    # до того, как их включили.
+    rubric: str | None = None
 
     views: int | None = None
     forwards: int | None = None
@@ -110,6 +113,7 @@ async def list_publications(
             CandidatePost.id,
             CandidatePost.raw_text,
             CandidatePost.score,
+            CandidatePost.rubric,
             SourceChannel.id,
             SourceChannel.title,
             SourceChannel.tg_username,
@@ -163,12 +167,13 @@ async def list_publications(
             raw_text=raw_text,
             score=score,
             persona_prompt_used=persona or None,
+            rubric=rubric,
             views=views,
             forwards=forwards,
         )
         for (
             pub, th_id, th_name, ch_title, ch_chat_id, rewritten, persona, pool_text,
-            _cand_id, raw_text, score, src_id, src_title, src_username, src_active,
+            _cand_id, raw_text, score, rubric, src_id, src_title, src_username, src_active,
             views, forwards,
         ) in rows
     ]
