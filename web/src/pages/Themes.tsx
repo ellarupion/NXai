@@ -1701,6 +1701,13 @@ function ThemeDetail({ themeId }: { themeId: string }) {
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-semibold text-ink">Режим работы</h2>
         <Toggle
+          label="Готовить посты только по запросу"
+          hint="Тема ничего не делает сама: посты появляются, когда вы нажимаете «Посты на сегодня» в «Проверке». Отклонённый пост заменяется автоматически, пока партия на день не закроется. Выключите, когда захотите непрерывный поток — тогда бот будет готовить посты сам, круглосуточно."
+          checked={theme.data.manual_mode}
+          onChange={(v) => updateMode.mutate({ manual_mode: v })}
+          disabled={updateMode.isPending}
+        />
+        <Toggle
           label="Премодерация"
           hint="Каждый пост темы попадает в «Проверку» и выходит только после вашего одобрения. Выключите, когда стилю можно доверять — посты пойдут в канал сами."
           checked={theme.data.premoderation}

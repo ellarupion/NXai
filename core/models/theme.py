@@ -1,6 +1,7 @@
+from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Integer, String, Text
+from sqlalchemy import Boolean, Date, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +45,20 @@ class Theme(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # (core/services/scheduler_pool.py), а классификатор проставляет их постам
     # (core/services/rubrics.py). Пустой список — деление выключено.
     rubrics: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+
+    # Ручной режим: тема готовит посты только по просьбе оператора («Посты на
+    # сегодня»), фоновый рерайт её не трогает. Умолчание — включён: непрерывный
+    # конвейер на дюжине источников выдавал десятки постов в сутки, все в
+    # «Проверку», и каждый стоил денег за LLM. В автоматический режим теперь
+    # входят осознанно, а не оказываются в нём по умолчанию.
+    manual_mode: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+
+    # Сколько постов заказано на сегодня и когда. Дата — в таймзоне проекта
+    # (PanelSettings.timezone), а не UTC: «сегодня» для оператора это его день.
+    # По этой паре считается долг темы — сколько постов ещё должно доехать,
+    # чтобы заказ был закрыт (core/services/daily_batch.py).
+    daily_batch_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    daily_batch_size: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     source_channels: Mapped[list["SourceChannel"]] = relationship(back_populates="theme")
     target_channels: Mapped[list["TargetChannel"]] = relationship(back_populates="theme")

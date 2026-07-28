@@ -48,7 +48,7 @@ from core.services.media import download_candidate_photos
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
 from core.services.persona import build_persona_prompt
-from core.services import rubrics
+from core.services import daily_batch, rubrics
 from core.services.rewrite import RewriteService
 from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
@@ -259,6 +259,19 @@ async def dedup_and_rewrite_job() -> None:
             per_day = int((cadence or {}).get("posts_per_day_target") or 0)
             limits[theme_id] = max(per_day * REWRITE_STOCK_DAYS, MIN_REWRITE_STOCK)
 
+        # Ручные темы работают не по запасу, а по заказу: сколько постов
+        # оператор попросил на сегодня и сколько из них ещё не доехало.
+        # Отклонил один — долг стал единицей, и на этом тике приедет замена.
+        # Разобрал всю партию — долг ноль, тема молчит до следующей просьбы.
+        manual_ids = (
+            await session.execute(select(Theme.id).where(Theme.manual_mode.is_(True)))
+        ).scalars().all()
+        debts: dict = {tid: await daily_batch.outstanding(session, tid) for tid in manual_ids}
+        # Замену помечаем той же партией, что и заказ. Без метки она не
+        # засчиталась бы, долг остался бы прежним, и тема добирала бы посты
+        # бесконечно — ровно тот поток, от которого уходим.
+        batch_today = await daily_batch.today_in_project_tz(session) if manual_ids else None
+
         result = await session.execute(
             select(CandidatePost.id, SourceChannel.theme_id)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
@@ -280,6 +293,7 @@ async def dedup_and_rewrite_job() -> None:
         dedup = DedupService(session, embeddings)
         rewrite = RewriteService(session, llm, embeddings)
         skipped_stocked = 0
+        skipped_manual = 0
         for candidate_id, theme_id in rows:
             if theme_id is None:
                 continue
@@ -290,7 +304,11 @@ async def dedup_and_rewrite_job() -> None:
                     pending=len(rows) - rewritten,
                 )
                 break
-            if stock.get(theme_id, 0) >= limits.get(theme_id, MIN_REWRITE_STOCK):
+            if theme_id in debts:
+                if debts[theme_id] <= 0:
+                    skipped_manual += 1
+                    continue
+            elif stock.get(theme_id, 0) >= limits.get(theme_id, MIN_REWRITE_STOCK):
                 skipped_stocked += 1
                 continue
             # try/except покрывает и дедуп (Voyage API умеет падать так же, как
@@ -335,6 +353,8 @@ async def dedup_and_rewrite_job() -> None:
                 has_editor = channel_bot is not None and channel_bot.editor_chat_id is not None
                 candidate = await session.get(CandidatePost, candidate_id)
                 if candidate is not None:
+                    if theme_id in debts:
+                        candidate.batch_date = batch_today
                     # Рубрику определяем по УЖЕ переписанному тексту, а не по
                     # исходнику: публикуем именно его, и чередование должно
                     # опираться на то, что реально выйдет в канал.
@@ -344,9 +364,11 @@ async def dedup_and_rewrite_job() -> None:
                     if (theme is not None and theme.premoderation) or has_editor:
                         candidate.status = CandidatePostStatus.PENDING_REVIEW
                 rewritten += 1
-                # Учитываем в запасе темы сразу: иначе внутри одного тика
-                # лимит запаса не сработал бы и мы переписали бы всё подряд.
+                # Учитываем сразу: иначе внутри одного тика ни лимит запаса,
+                # ни долг не сработали бы и мы переписали бы всё подряд.
                 stock[theme_id] = stock.get(theme_id, 0) + 1
+                if theme_id in debts:
+                    debts[theme_id] -= 1
                 await session.commit()
                 # Карточка редактору в личку тем-бота (кнопки Одобрить/
                 # Поправить/Отклонить) — после коммита: пост уже в очереди,
@@ -389,6 +411,7 @@ async def dedup_and_rewrite_job() -> None:
         "scheduler.dedup_and_rewrite_done",
         rewritten=rewritten,
         skipped_stocked=skipped_stocked,
+        skipped_manual=skipped_manual,
         selected_total=len(rows),
     )
 

@@ -36,6 +36,7 @@ class ThemeOut(BaseModel):
     digest_hour: int
     premoderation: bool
     rubrics: list[str] = []
+    manual_mode: bool
 
     model_config = {"from_attributes": True}
 
@@ -55,6 +56,7 @@ class ThemeUpdate(BaseModel):
     digest_hour: int | None = None
     premoderation: bool | None = None
     rubrics: list[str] | None = None
+    manual_mode: bool | None = None
 
 
 @router.get("", response_model=list[ThemeOut])
@@ -107,6 +109,13 @@ async def update_theme(
         theme.premoderation = payload.premoderation
     if payload.rubrics is not None:
         theme.rubrics = _clean_rubrics(payload.rubrics)
+    if payload.manual_mode is not None:
+        theme.manual_mode = payload.manual_mode
+        if payload.manual_mode:
+            # Выход из автоматического режима гасит незакрытый заказ: иначе
+            # тема, только что переведённая в ручной, немедленно принялась бы
+            # добирать «долг», которого оператор не заказывал.
+            theme.daily_batch_size = 0
 
     await session.flush()
     await session.commit()

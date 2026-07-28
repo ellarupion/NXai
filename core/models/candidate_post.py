@@ -1,9 +1,19 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -69,6 +79,13 @@ class CandidatePost(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # свободно, и переименование не должно каскадом переписывать историю —
     # старое значение просто перестаёт совпадать со списком темы.
     rubric: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    # К партии какого дня относится пост («Посты на сегодня»). NULL — пост
+    # приготовлен вне партии: автоматическим конвейером или кнопкой точного
+    # количества. Нужен, чтобы считать долг темы: «сколько постов одобрено
+    # сегодня» и «сколько из заказанных доехало» — разные числа, и без пометки
+    # чужие одобрения молча гасили бы заказ.
+    batch_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
 
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     # Self-FK: если дедуп находит более ранний кандидат с cosine similarity выше

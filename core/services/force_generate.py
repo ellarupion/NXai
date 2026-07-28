@@ -12,6 +12,7 @@ core/services/ingest_candidates.py, докачки за прошлое пока 
 вслепую постов оператор должен явно одобрить — см. core/services/review.py."""
 
 from dataclasses import dataclass
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -48,6 +49,40 @@ class GeneratedPost:
     score: float | None
 
 
+
+# Пул для отбора берём шире заказа: «топ-N по виральности» — это обычно N
+# постов про одно и то же.
+POOL_FACTOR = 4
+MAX_POOL = 40
+
+
+def _round_robin_by_rubric(pool: list, count: int) -> list:
+    """По одному посту из каждой подтемы, по кругу, внутри подтемы — по
+    убыванию виральности. Порядок выдачи затем перемешивается.
+
+    Шафл не косметика: без него партия приходит отсортированной по подтемам,
+    и оператор разбирает её блоками «пять про деньги, пять про отношения» —
+    ровно то ощущение зацикленности, от которого уходим."""
+    import random
+
+    buckets: dict = {}
+    for candidate in pool:
+        buckets.setdefault(candidate.rubric, []).append(candidate)
+    for items in buckets.values():
+        items.sort(key=lambda c: (c.score is not None, c.score or 0.0), reverse=True)
+
+    picked: list = []
+    # Обход по кругу, пока не наберём заказ или пока подтемы не кончатся.
+    while len(picked) < count and any(buckets.values()):
+        for rubric in list(buckets):
+            if len(picked) >= count:
+                break
+            if buckets[rubric]:
+                picked.append(buckets[rubric].pop(0))
+    random.shuffle(picked)
+    return picked
+
+
 class ForceGenerateService:
     def __init__(self, session: AsyncSession, settings: Settings) -> None:
         self.session = session
@@ -55,7 +90,9 @@ class ForceGenerateService:
         self.llm = LLMClient(settings)
         self.embeddings = EmbeddingsClient(settings)
 
-    async def generate(self, theme_id: UUID, count: int) -> list[GeneratedPost]:
+    async def generate(
+        self, theme_id: UUID, count: int, batch_date: date | None = None
+    ) -> list[GeneratedPost]:
         theme = await self.session.get(Theme, theme_id)
         if theme is None:
             raise ForceGenerateError("Тема не найдена")
@@ -137,10 +174,16 @@ class ForceGenerateService:
                 continue
 
             candidate.status = CandidatePostStatus.PENDING_REVIEW
-            # По переписанному тексту, а не по исходнику — публиковать будем его.
-            candidate.rubric = await rubrics.classify(
-                self.session, theme_id, post_version.rewritten_text, llm=self.llm
-            )
+            # Метка партии: по ней считается долг темы. Ставится только для
+            # «Постов на сегодня» — посты по кнопке точного количества к заказу
+            # не относятся и гасить его не должны.
+            candidate.batch_date = batch_date
+            # Второй раз не платим: при отборе рубрика уже определена по
+            # исходнику, а рерайт тему поста не меняет — он меняет подачу.
+            if candidate.rubric is None:
+                candidate.rubric = await rubrics.classify(
+                    self.session, theme_id, post_version.rewritten_text, llm=self.llm
+                )
             await self.session.flush()
 
             source_channel = await self.session.get(SourceChannel, candidate.source_channel_id)
@@ -185,6 +228,14 @@ class ForceGenerateService:
         return list(result.scalars().all())
 
     async def _eligible_candidates(self, theme_id: UUID, count: int) -> list[CandidatePost]:
+        """Отбор: сначала виральность, потом разброс по подтемам, потом шафл.
+
+        Берём пул шире заказа, потому что «самые виральные N» на практике
+        оказываются N постами про одно и то же: источники в один день пишут об
+        общем инфоповоде, и залетает у всех одно и то же. Из широкого пула
+        раскладываем по подтемам и берём по кругу — так в партию попадает и
+        менее виральный пост другой подтемы вместо пятого про деньги."""
+        pool_size = min(count * POOL_FACTOR, MAX_POOL)
         result = await self.session.execute(
             select(CandidatePost)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
@@ -193,9 +244,27 @@ class ForceGenerateService:
                 CandidatePost.status.in_([CandidatePostStatus.NEW, CandidatePostStatus.SCORING]),
             )
             .order_by(CandidatePost.score.desc().nulls_last(), CandidatePost.first_seen_at.desc())
-            .limit(count)
+            .limit(pool_size)
         )
-        return list(result.scalars().all())
+        pool = list(result.scalars().all())
+        if len(pool) <= count:
+            return pool
+
+        theme = await self.session.get(Theme, theme_id)
+        if not (theme and theme.rubrics):
+            return pool[:count]
+
+        # Классифицируем ИСХОДНИКИ, а не рерайты: выбирать надо до того, как
+        # платить за рерайт. Модель здесь дешёвая (Haiku), и это осознанный
+        # размен — десяток центов на классификацию пула ради того, чтобы
+        # дорогой Sonnet не переписывал пять постов об одном и том же.
+        for candidate in pool:
+            if candidate.rubric is None:
+                candidate.rubric = await rubrics.classify(
+                    self.session, theme_id, candidate.raw_text, llm=self.llm
+                )
+
+        return _round_robin_by_rubric(pool, count)
 
     async def _backfill(self, source_channels: list[SourceChannel]) -> None:
         """Докачивает недавнюю историю каждого source_channel темы — общая

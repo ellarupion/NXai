@@ -32,6 +32,8 @@ from core.services.review import (
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 from interfaces.bots.notify import push_review_cards
+from core.models.theme import Theme
+from core.services.daily_batch import daily_target, order_batch, today_in_project_tz
 
 router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(get_current_admin)])
 
@@ -41,6 +43,16 @@ MAX_GENERATE_COUNT = 10
 class GenerateRequest(BaseModel):
     theme_id: UUID
     count: int = 3
+
+
+class DailyBatchRequest(BaseModel):
+    theme_id: UUID
+
+
+class DailyBatchOut(BaseModel):
+    ordered: int
+    delivered: int
+    posts: list["GeneratedPostOut"]
 
 
 class GeneratedPostOut(BaseModel):
@@ -99,6 +111,64 @@ async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depen
         )
         for r in results
     ]
+
+
+@router.post("/daily-batch", response_model=DailyBatchOut)
+async def generate_daily_batch(
+    payload: DailyBatchRequest, session: AsyncSession = Depends(get_db)
+) -> DailyBatchOut:
+    """«Посты на сегодня»: одна партия размером в дневное расписание темы.
+
+    Размер не спрашиваем — он уже задан кадансом бота. Заказ запоминается на
+    теме, и дальше планировщик добирает партию сам, если оператор что-то
+    отклонит: долг считается как «заказано минус одобренное и ждущее»
+    (core/services/daily_batch.py). Повторная просьба в тот же день заказ не
+    удваивает."""
+    theme = await session.get(Theme, payload.theme_id)
+    if theme is None:
+        raise HTTPException(status_code=404, detail="Тема не найдена")
+
+    size = await daily_target(session, payload.theme_id)
+    today = await today_in_project_tz(session)
+    settings = await get_effective_settings(session)
+    try:
+        results = await ForceGenerateService(session, settings).generate(
+            payload.theme_id, size, batch_date=today
+        )
+    except ForceGenerateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Заказ отмечаем ПОСЛЕ успешной генерации: упади она на ключах LLM —
+    # тема осталась бы с долгом, который планировщик принялся бы гасить сам,
+    # молча и в фоне. А оператор просил партию именно сейчас и видел ошибку.
+    await order_batch(session, theme, size)
+    await session.commit()
+
+    await push_review_cards(
+        session,
+        [
+            {
+                "candidate_id": r.candidate_id,
+                "source_channel_title": r.source_channel_title,
+                "rewritten_text": r.rewritten_text,
+                "score": r.score,
+            }
+            for r in results
+        ],
+    )
+    return DailyBatchOut(
+        ordered=size,
+        delivered=len(results),
+        posts=[
+            GeneratedPostOut(
+                candidate_id=r.candidate_id,
+                source_channel_title=r.source_channel_title,
+                rewritten_text=r.rewritten_text,
+                score=r.score,
+            )
+            for r in results
+        ],
+    )
 
 
 @router.get("/pending-review", response_model=list[PendingReviewOut])

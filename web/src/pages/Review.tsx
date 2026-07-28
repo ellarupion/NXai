@@ -5,7 +5,7 @@ import { pendingReviewCountsQuery, pendingReviewQuery, themesQuery } from "../ap
 import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, TextAction, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { plural } from "../lib/plural";
-import type { GeneratedPost, PendingReviewPost } from "../types";
+import type { DailyBatch, GeneratedPost, PendingReviewPost } from "../types";
 
 function GenerateForm({ themeId }: { themeId: string }) {
   const queryClient = useQueryClient();
@@ -14,6 +14,7 @@ function GenerateForm({ themeId }: { themeId: string }) {
   const [count, setCount] = useState("3");
   const [error, setError] = useState<string | null>(null);
   const [lastGenerated, setLastGenerated] = useState<GeneratedPost[] | null>(null);
+  const [lastBatch, setLastBatch] = useState<DailyBatch | null>(null);
 
   const clampedCount = Math.min(10, Math.max(1, Number(count) || 1));
 
@@ -31,14 +32,39 @@ function GenerateForm({ themeId }: { themeId: string }) {
     },
   });
 
+  const daily = useMutation({
+    mutationFn: () => api.post<DailyBatch>("/candidates/daily-batch", { theme_id: themeId }),
+    onSuccess: (data) => {
+      setError(null);
+      setLastGenerated(data.posts);
+      setLastBatch(data);
+      queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+    },
+    onError: (err) => {
+      setLastGenerated(null);
+      setLastBatch(null);
+      setError(err instanceof ApiError ? err.message : "Не удалось сделать посты на сегодня");
+    },
+  });
+
   return (
     <Card>
       <h2 className="mb-3 text-sm font-semibold text-ink">Сделать посты</h2>
       <p className="mb-3 text-sm text-ink-muted">
-        Не хотите ждать, пока система сама отберёт лучшее — сделайте посты прямо
-        сейчас: возьмём свежие посты источников темы, перепишем в стиле вашего
-        бота и положим сюда на одобрение. Без вашего «Одобрить» в канал ничего
-        не уйдёт.
+        Партия на день — столько постов, сколько тема публикует по своему расписанию.
+        Отбираем по виральности, раскладываем по подтемам и перемешиваем, чтобы подряд
+        не шло пять постов про одно и то же. Отклоните любой — замена придёт сама в
+        течение нескольких минут. Одобрили всё — тема замолкает до следующей просьбы.
+      </p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <span title={!themeId ? "Сначала выберите тему в фильтре выше" : undefined}>
+          <Button onClick={() => { setError(null); daily.mutate(); }} disabled={daily.isPending || !themeId}>
+            {daily.isPending ? "Готовлю партию…" : "Посты на сегодня"}
+          </Button>
+        </span>
+      </div>
+      <p className="mb-2 text-xs text-ink-muted">
+        Либо точное количество, если нужна не партия, а пара постов:
       </p>
       <form
         className="flex flex-wrap gap-2"
@@ -69,6 +95,12 @@ function GenerateForm({ themeId }: { themeId: string }) {
         )}
       </form>
       {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+      {lastBatch && lastBatch.delivered < lastBatch.ordered && (
+        <p className="mt-2 text-sm text-ink-muted">
+          Заказано {lastBatch.ordered}, готово {lastBatch.delivered} — на остальное не хватило
+          подходящих постов в источниках. Недостающие доедут, как только источники их напишут.
+        </p>
+      )}
       {lastGenerated && (
         <p className="mt-2 text-sm text-good">
           Сгенерировано постов: {lastGenerated.length}. Смотрите список ниже.

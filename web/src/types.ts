@@ -10,6 +10,7 @@ export interface Theme {
   digest_hour: number;
   premoderation: boolean;
   rubrics: string[];
+  manual_mode: boolean;
 }
 
 export type ThemeHealthStatus = "ok" | "warn" | "crit";
@@ -169,6 +170,15 @@ export interface GeneratedPost {
   source_channel_title: string;
   rewritten_text: string;
   score: number | null;
+}
+
+/* Ответ «Посты на сегодня». ordered — сколько заказано (дневное расписание
+   темы), delivered — сколько удалось приготовить: их может быть меньше, если
+   в источниках не набралось подходящих постов. */
+export interface DailyBatch {
+  ordered: number;
+  delivered: number;
+  posts: GeneratedPost[];
 }
 
 export interface PendingReviewPost {
