@@ -20,6 +20,7 @@ import { plural } from "../lib/plural";
 import type {
   Cadence,
   ChannelBot,
+  ChannelCandidate,
   CrosspostConfig,
   PersonaConfig,
   PoolPost,
@@ -370,6 +371,219 @@ function SourceRow({ channel }: { channel: SourceChannel }) {
       </div>
       {error && <p className="text-xs text-bad">{error}</p>}
     </li>
+  );
+}
+
+/* Поиск источников (core/services/source_discovery.py). Раньше пополнение
+   источников выглядело так: уйти в Telegram, гадать поисковыми словами,
+   открыть каждый найденный канал руками и проверить, живой ли он. Причём
+   поиск Telegram ищет по НАЗВАНИЮ, а ниша в названии обычно не отражена —
+   самые подходящие каналы им просто не находятся.
+
+   Здесь оба шага делает панель: LLM подбирает запросы по теме (их видно и
+   можно поправить — оператор знает нишу лучше модели), а поиск дополняется
+   рекомендациями Telegram к уже добавленным источникам, которые строятся по
+   пересечению аудиторий, а не по словам. Мёртвые каналы отсеиваются до
+   показа, темп публикаций виден сразу. */
+function DiscoverSourcesForm({ themeId }: { themeId: string }) {
+  const queryClient = useQueryClient();
+  const sessions = useQuery(telethonSessionsQuery());
+  const [open, setOpen] = useState(false);
+  const [queries, setQueries] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [candidates, setCandidates] = useState<ChannelCandidate[] | null>(null);
+  const [ingestSessionId, setIngestSessionId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
+
+  const suggest = useMutation({
+    mutationFn: () => api.post<{ queries: string[] }>(`/discovery/${themeId}/queries`),
+    onSuccess: (r) => {
+      setError(null);
+      setQueries(r.queries);
+      setCandidates(null);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось подобрать запросы"),
+  });
+
+  const search = useMutation({
+    mutationFn: () =>
+      api.post<{ candidates: ChannelCandidate[] }>(`/discovery/${themeId}/search`, { queries }),
+    onSuccess: (r) => {
+      setError(null);
+      setCandidates(r.candidates);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Поиск не удался"),
+  });
+
+  const add = useMutation({
+    mutationFn: (username: string) =>
+      api.post("/source-channels", {
+        username_or_link: username,
+        ingest_session_id: ingestSessionId || sessions.data?.[0]?.id,
+        theme_id: themeId,
+      }),
+    onSuccess: (_d, username) => {
+      setError(null);
+      setAdded((prev) => [...prev, username]);
+      queryClient.invalidateQueries({ queryKey: ["source-channels"] });
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось добавить"),
+  });
+
+  if (!open) {
+    return (
+      <TextAction onClick={() => setOpen(true)}>
+        Найти источники под эту тему
+      </TextAction>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-medium text-ink">Поиск источников</span>
+        <TextAction onClick={() => setOpen(false)}>Свернуть</TextAction>
+      </div>
+
+      <p className="text-xs text-ink-muted">
+        ИИ подберёт поисковые запросы по вашей теме, а Telegram — каналы под них. К найденному
+        добавятся каналы, похожие на ваши текущие источники: их Telegram определяет по
+        пересечению аудиторий, поэтому так находится то, что поиском по названию не найти.
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => suggest.mutate()}
+          disabled={suggest.isPending}
+        >
+          {suggest.isPending ? "Подбираю…" : "Подобрать запросы"}
+        </Button>
+        {queries.length > 0 && (
+          <Button onClick={() => search.mutate()} disabled={search.isPending}>
+            {search.isPending ? "Ищу в Telegram…" : `Искать (${queries.length})`}
+          </Button>
+        )}
+      </div>
+
+      {search.isPending && (
+        <Callout>
+          Поиск идёт полминуты: Telegram отвечает по одному запросу за раз, между ними нужны
+          паузы, иначе он временно закроет доступ аккаунту.
+        </Callout>
+      )}
+
+      {queries.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-ink-muted">
+            Запросы — можно править, вы знаете нишу лучше модели:
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {queries.map((q) => (
+              <span
+                key={q}
+                className="inline-flex min-h-11 items-center gap-2 rounded-full bg-surface-2 px-3 py-1 text-xs text-ink sm:min-h-0"
+              >
+                {q}
+                <button
+                  type="button"
+                  onClick={() => setQueries((prev) => prev.filter((x) => x !== q))}
+                  className="text-ink-muted hover:text-bad"
+                  title="Убрать запрос"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <form
+            className="flex flex-wrap gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const value = draft.trim();
+              if (value && !queries.includes(value)) setQueries((prev) => [...prev, value]);
+              setDraft("");
+            }}
+          >
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Свой запрос"
+              className="flex-1"
+            />
+            <Button type="submit" variant="secondary" disabled={!draft.trim()}>
+              Добавить запрос
+            </Button>
+          </form>
+        </div>
+      )}
+
+      {candidates && candidates.length === 0 && (
+        <EmptyState message="Ничего живого не нашлось — попробуйте другие запросы или расширьте формулировки." />
+      )}
+
+      {candidates && candidates.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-muted">Куда назначить читалку:</span>
+            <Select
+              value={ingestSessionId}
+              onChange={(e) => setIngestSessionId(e.target.value)}
+              className="text-xs"
+            >
+              <option value="">— первый доступный аккаунт —</option>
+              {sessions.data?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <ul className="flex flex-col divide-y divide-border">
+            {candidates.map((c) => {
+              const done = c.already_added || added.includes(`@${c.username}`);
+              return (
+                <li key={c.username} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-ink">
+                      {c.title}{" "}
+                      <span className="text-xs text-ink-muted">@{c.username}</span>
+                    </p>
+                    <p className="mt-0.5 text-xs text-ink-muted">
+                      {c.posts_per_day} постов/день ·{" "}
+                      {c.participants ? `${c.participants.toLocaleString("ru-RU")} подписчиков · ` : ""}
+                      {c.days_since_last_post === 0
+                        ? "постил сегодня"
+                        : `последний пост ${c.days_since_last_post} дн. назад`}{" "}
+                      · {c.found_via}
+                    </p>
+                  </div>
+                  {done ? (
+                    <span className="shrink-0 text-xs text-good">уже в теме</span>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      disabled={add.isPending}
+                      onClick={() => add.mutate(`@${c.username}`)}
+                      className="shrink-0"
+                    >
+                      Добавить
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-xs text-ink-muted">
+            Больше 8–10 постов в день у канала — обычно признак агрегатора: такие переклеивают
+            чужое, и дедуп всё равно отсеет их посты как повторы.
+          </p>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-bad">{error}</p>}
+    </div>
   );
 }
 
@@ -1424,6 +1638,7 @@ function ThemeDetail({ themeId }: { themeId: string }) {
         </Callout>
         <AddSourceForm themeId={themeId} />
         <AttachExistingSourceForm themeId={themeId} />
+        <DiscoverSourcesForm themeId={themeId} />
         {themeSources.length === 0 ? (
           <EmptyState message="Нет ни одного источника — добавьте выше, иначе теме неоткуда брать контент." />
         ) : (

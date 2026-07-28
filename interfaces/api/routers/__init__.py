@@ -6,6 +6,7 @@ from interfaces.api.routers.auth import router as auth_router
 from interfaces.api.routers.candidates import router as candidates_router
 from interfaces.api.routers.channel_bots import router as channel_bots_router
 from interfaces.api.routers.dashboard import router as dashboard_router
+from interfaces.api.routers.discovery import router as discovery_router
 from interfaces.api.routers.health import router as health_router
 from interfaces.api.routers.pool_posts import router as pool_posts_router
 from interfaces.api.routers.publications import router as publications_router
@@ -29,6 +30,7 @@ router.include_router(settings_general_router)
 router.include_router(telethon_sessions_router)
 router.include_router(candidates_router)
 router.include_router(pool_posts_router)
+router.include_router(discovery_router)
 router.include_router(publications_router)
 router.include_router(queue_router)
 router.include_router(dashboard_router)

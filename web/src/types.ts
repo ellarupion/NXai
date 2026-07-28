@@ -290,3 +290,15 @@ export interface ThemePendingCount {
   theme_id: string | null;
   count: number;
 }
+
+/* Поиск источников под тему: LLM подбирает запросы, Telegram отдаёт
+   кандидатов (core/services/source_discovery.py). */
+export interface ChannelCandidate {
+  username: string;
+  title: string;
+  participants: number | null;
+  posts_per_day: number;
+  days_since_last_post: number;
+  found_via: string;
+  already_added: boolean;
+}
