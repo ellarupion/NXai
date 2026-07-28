@@ -28,7 +28,8 @@ from core.models.source_channel import SourceChannel
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.persona import build_persona_prompt
-from core.services.rewrite import RewriteService
+from core.services.content_filter import AUTO_REASON_AD
+from core.services.rewrite import RewriteError, RewriteService
 
 logger = get_logger(__name__)
 
@@ -77,6 +78,7 @@ class ForceGenerateService:
         results: list[GeneratedPost] = []
         last_error: str | None = None
         duplicates_found = 0
+        skipped_unsuitable = 0
 
         for candidate in candidates:
             if len(results) >= count:
@@ -96,6 +98,19 @@ class ForceGenerateService:
                     duplicates_found += 1
                     continue
                 post_version = await rewrite.generate(candidate.id, persona_prompt)
+            except RewriteError as exc:
+                # Не системный сбой, а свойство самого поста (нет текста, одна
+                # реклама). Возвращать его в NEW нельзя — он бы всплывал на
+                # каждое следующее «Сделать посты» и снова тратил вызов LLM.
+                logger.info(
+                    "force_generate.candidate_unsuitable",
+                    candidate_id=str(candidate.id), reason=str(exc),
+                )
+                candidate.status = CandidatePostStatus.REJECTED
+                candidate.rejection_reason = AUTO_REASON_AD
+                await self.session.flush()
+                skipped_unsuitable += 1
+                continue
             except Exception as exc:
                 # Не оставляем кандидата застрявшим в SELECTED — частая причина
                 # здесь системная (невалидный/неоплаченный ключ LLM/эмбеддингов),
@@ -134,6 +149,11 @@ class ForceGenerateService:
             if duplicates_found:
                 raise ForceGenerateError(
                     "Все найденные посты оказались повторами уже обработанных — новых уникальных нет"
+                )
+            if skipped_unsuitable:
+                raise ForceGenerateError(
+                    f"Все найденные посты ({skipped_unsuitable}) оказались рекламой источников "
+                    "или без текста — публиковать из них нечего"
                 )
 
         return results

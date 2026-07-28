@@ -277,6 +277,10 @@ async def rejection_stats(
             SourceChannel.theme_id == bot.theme_id,
             CandidatePost.status == CandidatePostStatus.REJECTED,
             CandidatePost.rejection_reason.is_not(None),
+            # Авто-причины (реклама источника, пост без текста) сюда не идут:
+            # это претензии к ИСТОЧНИКУ, а не к стилю бота, и в подсказках
+            # «что поправить в персоне» они бы только сбивали с толку.
+            CandidatePost.rejection_reason.not_like("auto_%"),
             CandidatePost.updated_at >= since,
         )
         .group_by(CandidatePost.rejection_reason)

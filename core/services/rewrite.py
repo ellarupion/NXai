@@ -16,9 +16,14 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.post_version import PostVersion
+from core.services.content_filter import is_too_short_to_rewrite
 from core.services.trust_score import SUCCESS_BONUS, adjust_trust_score
 
 logger = get_logger(__name__)
+
+
+class RewriteError(Exception):
+    """Рерайт невозможен по содержанию исходника, а не из-за сбоя."""
 
 ANTI_COPY_INSTRUCTIONS = """\
 Перепиши пост своими словами для тематического Telegram-канала. Требования:
@@ -26,6 +31,11 @@ ANTI_COPY_INSTRUCTIONS = """\
 - не копируй формулировки дословно, кроме имён/цифр/названий;
 - подстрой длину и тон под персону канала (см. системный промпт);
 - не добавляй ссылки/упоминания исходного канала;
+- ВЫРЕЖИ всё, что продвигает автора исходника: чужие @упоминания и ссылки,
+  призывы записаться/писать в личку, цены, промокоды, анонсы его курсов и
+  встреч, условия вида «N реакций — и выложу продолжение». Если после
+  вырезания остаётся только реклама и полезного содержания нет — верни ровно
+  строку NO_CONTENT и ничего больше;
 - итог не длиннее 3500 символов: у Telegram жёсткий лимит 4096 на сообщение,
   и к тексту ещё добавляется подпись канала;
 - разметку оформляй в Markdown Telegram: *жирный*, _курсив_, [текст](ссылка).
@@ -46,6 +56,14 @@ class RewriteService:
             raise ValueError(f"CandidatePost {candidate_id} not found")
         if candidate.status is not CandidatePostStatus.SELECTED:
             raise ValueError(f"CandidatePost {candidate.id} is {candidate.status.value}, expected selected")
+        # Вторая линия обороны к отсеву на приёме (content_filter): с пустым
+        # user_prompt модель отвечает не постом, а репликой «дай мне текст», и
+        # эта реплика уходит редактору как готовый пост. Лучше явная ошибка.
+        if is_too_short_to_rewrite(candidate.raw_text):
+            raise RewriteError(
+                "В исходном посте нет текста — переписывать нечего "
+                "(пост-картинка без подписи)"
+            )
 
         system_prompt = f"{persona_prompt}\n\n{ANTI_COPY_INSTRUCTIONS}"
         result = await self.llm.complete(
@@ -53,6 +71,16 @@ class RewriteService:
             system_prompt=system_prompt,
             user_prompt=candidate.raw_text,
         )
+
+        # Модель сама сообщает, что вырезать было нечего, кроме рекламы
+        # (см. ANTI_COPY_INSTRUCTIONS). Ловим здесь, а не отдаём редактору
+        # пустышку: эвристический фильтр на приёме ловит явное, а это — сеть
+        # для завуалированной продажи, которая по маркерам не опозналась.
+        if result.text.strip().upper().startswith("NO_CONTENT"):
+            logger.info("rewrite.only_promo", candidate_id=str(candidate_id))
+            raise RewriteError(
+                "В исходном посте нет ничего, кроме рекламы автора — публиковать нечего"
+            )
 
         source_similarity = await self._similarity(candidate.raw_text, result.text)
 

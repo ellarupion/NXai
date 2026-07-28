@@ -21,6 +21,13 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.source_channel import SourceChannel
+from core.services.content_filter import (
+    AUTO_REASON_AD,
+    AUTO_REASON_NO_TEXT,
+    ad_signals,
+    is_too_short_to_rewrite,
+    looks_like_ad,
+)
 
 logger = get_logger(__name__)
 
@@ -66,12 +73,38 @@ class IngestCandidatesService:
             logger.info("ingest_candidates.duplicate_ignored", candidate_id=str(existing.id))
             return existing.id
 
+        # Отсев на приёме (core/services/content_filter.py): пост без текста
+        # рерайтить нечем — LLM получит пустой промпт и ответит разговором,
+        # а не постом; чужая реклама пройдёт скоринг и утащит в наш канал
+        # @username и цены конкурента. Заводим такие кандидаты СО статусом
+        # REJECTED, а не выбрасываем молча: иначе tg_message_id не запомнится,
+        # и следующая докачка притащит тот же пост заново.
+        status = CandidatePostStatus.NEW
+        auto_reason: str | None = None
+        if is_too_short_to_rewrite(post.text):
+            status = CandidatePostStatus.REJECTED
+            auto_reason = AUTO_REASON_NO_TEXT
+            logger.info(
+                "ingest_candidates.skipped_no_text",
+                tg_message_id=post.tg_message_id,
+                length=len(post.text.strip()),
+            )
+        elif looks_like_ad(post.text):
+            status = CandidatePostStatus.REJECTED
+            auto_reason = AUTO_REASON_AD
+            logger.info(
+                "ingest_candidates.skipped_ad",
+                tg_message_id=post.tg_message_id,
+                signals=", ".join(ad_signals(post.text)),
+            )
+
         candidate = CandidatePost(
             source_channel_id=source_channel.id,
             tg_message_id=post.tg_message_id,
             raw_text=post.text,
             first_seen_at=post.posted_at or datetime.now(timezone.utc),
-            status=CandidatePostStatus.NEW,
+            status=status,
+            rejection_reason=auto_reason,
             has_media=post.has_media,
             media_group_id=post.media_group_id,
         )
