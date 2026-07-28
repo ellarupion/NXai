@@ -16,6 +16,7 @@ import type {
   TelethonSession,
   Theme,
   ThemeHealth,
+  ThemePendingCount,
   Trends,
 } from "../types";
 
@@ -124,3 +125,8 @@ export const publicationsQuery = (params: {
     queryFn: () => api.get<PublicationsPage>(`/publications?${q.toString()}`),
   };
 };
+
+export const pendingReviewCountsQuery = () => ({
+  queryKey: ["pending-review-counts"],
+  queryFn: () => api.get<ThemePendingCount[]>("/candidates/pending-review/counts"),
+});

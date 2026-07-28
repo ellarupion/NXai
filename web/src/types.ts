@@ -283,3 +283,10 @@ export interface PublicationsPage {
   items: PublicationItem[];
   has_more: boolean;
 }
+
+/* Счётчики для вкладок «Проверки»: сколько постов ждёт одобрения в каждой
+   теме. theme_id=null — посты источников, у которых тему удалили. */
+export interface ThemePendingCount {
+  theme_id: string | null;
+  count: number;
+}

@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.models.candidate_post import CandidatePost
@@ -20,10 +20,13 @@ from core.services.effective_settings import get_effective_settings
 from core.services.force_generate import ForceGenerateError, ForceGenerateService
 from core.services.media import download_candidate_photos_by_id
 from core.services.review import (
+    AlreadyHandledError,
     ReviewError,
     approve_candidate,
     edit_candidate_text,
+    reject_all_pending,
     reject_candidate,
+    restore_rejected,
     unapprove_candidate,
 )
 from interfaces.api.auth import get_current_admin
@@ -126,6 +129,64 @@ async def list_pending_review(
     ]
 
 
+class ThemePendingCount(BaseModel):
+    theme_id: UUID | None
+    count: int
+
+
+@router.get("/pending-review/counts", response_model=list[ThemePendingCount])
+async def pending_review_counts(session: AsyncSession = Depends(get_db)) -> list[ThemePendingCount]:
+    """Сколько постов ждёт одобрения в каждой теме — для вкладок в «Проверке».
+    Отдельным GROUP BY, а не подсчётом на фронте: иначе ради счётчиков пришлось
+    бы тянуть весь неотфильтрованный список."""
+    rows = await session.execute(
+        select(SourceChannel.theme_id, func.count())
+        .join(CandidatePost, CandidatePost.source_channel_id == SourceChannel.id)
+        .where(CandidatePost.status == CandidatePostStatus.PENDING_REVIEW)
+        .group_by(SourceChannel.theme_id)
+    )
+    return [ThemePendingCount(theme_id=theme_id, count=count) for theme_id, count in rows.all()]
+
+
+class RejectAllPayload(BaseModel):
+    # None — отклонить во ВСЕХ темах. Панель в этом случае обязана спросить
+    # подтверждение с числом: разница между «почистил одну тему» и «снёс всё»
+    # огромная, а кнопка одна и та же.
+    theme_id: UUID | None = None
+
+
+class RejectAllResult(BaseModel):
+    count: int
+    # Отклонённые id — панель держит их для окна отмены.
+    candidate_ids: list[UUID]
+
+
+@router.post("/reject-all", response_model=RejectAllResult)
+async def reject_all(
+    payload: RejectAllPayload, session: AsyncSession = Depends(get_db)
+) -> RejectAllResult:
+    ids = await reject_all_pending(session, payload.theme_id)
+    await session.commit()
+    return RejectAllResult(count=len(ids), candidate_ids=ids)
+
+
+class RestorePayload(BaseModel):
+    candidate_ids: list[UUID]
+
+
+class RestoreResult(BaseModel):
+    restored: int
+
+
+@router.post("/restore", response_model=RestoreResult)
+async def restore(payload: RestorePayload, session: AsyncSession = Depends(get_db)) -> RestoreResult:
+    """Откат массового отклонения — «Отклонить все» стирает очередь одним
+    нажатием, и без отмены это была бы самая дорогая ошибка в панели."""
+    restored = await restore_rejected(session, payload.candidate_ids)
+    await session.commit()
+    return RestoreResult(restored=restored)
+
+
 class EditTextRequest(BaseModel):
     text: str
 
@@ -160,6 +221,10 @@ async def get_candidate_media(
 async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -> None:
     try:
         await approve_candidate(session, candidate_id)
+    except AlreadyHandledError as exc:
+        # 409, а не 400: панель по коду понимает, что это рассинхрон списка, и
+        # молча обновляет его вместо красной ошибки оператору.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await record_audit(session, AuditAction.APPROVE, "candidate", str(candidate_id))
@@ -192,6 +257,8 @@ async def reject(
 ) -> None:
     try:
         await reject_candidate(session, candidate_id, payload.reason if payload else None)
+    except AlreadyHandledError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await record_audit(session, AuditAction.REJECT, "candidate", str(candidate_id))

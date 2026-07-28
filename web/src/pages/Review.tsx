@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
-import { pendingReviewQuery, themesQuery } from "../api/queries";
+import { pendingReviewCountsQuery, pendingReviewQuery, themesQuery } from "../api/queries";
 import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, TextAction, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { plural } from "../lib/plural";
@@ -136,7 +136,10 @@ function PendingReviewCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.rewritten_text);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+    queryClient.invalidateQueries({ queryKey: ["pending-review-counts"] });
+  };
 
   const approve = useMutation({
     mutationFn: () => api.post(`/candidates/${post.candidate_id}/approve`),
@@ -145,7 +148,13 @@ function PendingReviewCard({
       onApproved(post);
       invalidate();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось одобрить"),
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        invalidate();
+        return;
+      }
+      setError(err instanceof ApiError ? err.message : "Не удалось одобрить");
+    },
   });
 
   const reject = useMutation({
@@ -155,7 +164,13 @@ function PendingReviewCard({
       setError(null);
       invalidate();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : "Не удалось отклонить"),
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        invalidate();
+        return;
+      }
+      setError(err instanceof ApiError ? err.message : "Не удалось отклонить");
+    },
   });
 
   const saveEdit = useMutation({
@@ -366,6 +381,108 @@ function UndoBar({
   );
 }
 
+/* Вкладки тем со счётчиками — вместо выпадающего фильтра. Очередь копится
+   общим пулом, и при нескольких темах непонятно, где именно затор: список
+   один, а счётчик один на всех. Вкладки показывают распределение сразу и
+   переключают разбор на конкретную тему одним нажатием — тот же приём, что на
+   рабочем столе темы. */
+function ThemeTabs({
+  themes,
+  counts,
+  activeId,
+  onSelect,
+}: {
+  themes: Array<{ id: string; name: string }>;
+  counts: Map<string | null, number>;
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  const total = [...counts.values()].reduce((a, b) => a + b, 0);
+  const orphan = counts.get(null) ?? 0;
+  // Темы без единого поста в очереди не показываем: вкладка, по которой всегда
+  // пусто, — это шум, а не навигация. Исключение — выбранная тема: если её
+  // только что разобрали до нуля, вкладка не должна исчезать из-под курсора,
+  // иначе непонятно, где ты находишься и почему список пуст.
+  const withPosts = themes.filter((t) => (counts.get(t.id) ?? 0) > 0 || t.id === activeId);
+
+  const chip = (active: boolean) =>
+    `inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
+      active ? "bg-accent text-accent-ink" : "bg-surface-2 text-ink-muted hover:text-ink"
+    }`;
+
+  return (
+    <div className="-mx-1 flex flex-nowrap gap-2 overflow-x-auto px-1 pb-1">
+      <button type="button" className={chip(activeId === "")} onClick={() => onSelect("")}>
+        Все темы
+        <span className="font-mono tabular-nums opacity-70">{total}</span>
+      </button>
+      {withPosts.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          className={chip(activeId === t.id)}
+          onClick={() => onSelect(t.id)}
+        >
+          <span className="max-w-[14rem] truncate">{t.name}</span>
+          <span className="font-mono tabular-nums opacity-70">{counts.get(t.id) ?? 0}</span>
+        </button>
+      ))}
+      {orphan > 0 && (
+        <span
+          title="Посты источников, у которых удалили тему. Отклоните их — публиковать такие некуда."
+          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full bg-bad-soft px-3 py-1.5 text-xs font-medium text-bad sm:min-h-0"
+        >
+          без темы
+          <span className="font-mono tabular-nums opacity-70">{orphan}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* Плашка отмены массового отклонения. «Отклонить все» стирает очередь одним
+   нажатием — без отмены это была бы самая дорогая ошибка в панели. */
+function BulkUndoBar({
+  count,
+  ids,
+  onDone,
+}: {
+  count: number;
+  ids: string[];
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const undo = useMutation({
+    mutationFn: () => api.post<{ restored: number }>("/candidates/restore", { candidate_ids: ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-review-counts"] });
+      onDone();
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.message : "Не удалось вернуть посты"),
+  });
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-2 p-3 text-sm text-ink">
+      <span>
+        {error ??
+          `Отклонено ${count} ${plural(count, "пост", "поста", "постов")}. Рейтинг источников не изменён.`}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="secondary" onClick={() => undo.mutate()} disabled={undo.isPending}>
+          Вернуть в проверку
+        </Button>
+        <Button variant="secondary" onClick={onDone}>
+          Готово
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function Review() {
   const queryClient = useQueryClient();
   const themes = useQuery(themesQuery());
@@ -388,8 +505,35 @@ export function Review() {
   const { data, isLoading, error, refetch } = useQuery(pendingReviewQuery(themeId || undefined));
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [approved, setApproved] = useState<PendingReviewPost | null>(null);
+  const [bulk, setBulk] = useState<{ count: number; ids: string[] } | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const counts = useQuery(pendingReviewCountsQuery());
 
   const themeNameById = new Map(themes.data?.map((t) => [t.id, t.name]) ?? []);
+  const countByTheme = new Map<string | null, number>(
+    counts.data?.map((c) => [c.theme_id, c.count]) ?? [],
+  );
+
+  const rejectAll = useMutation({
+    mutationFn: () =>
+      api.post<{ count: number; candidate_ids: string[] }>("/candidates/reject-all", {
+        theme_id: themeId || null,
+      }),
+    onSuccess: (r) => {
+      setBulkError(null);
+      setBulk({ count: r.count, ids: r.candidate_ids });
+      queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-review-counts"] });
+    },
+    onError: (err) =>
+      setBulkError(err instanceof ApiError ? err.message : "Не удалось отклонить"),
+  });
+
+  // Из счётчиков, а не из длины списка: кнопка должна называть то число,
+  // которое реально уйдёт в отклонение, даже если список ещё грузится.
+  const visibleCount = themeId
+    ? (countByTheme.get(themeId) ?? 0)
+    : [...countByTheme.values()].reduce((a, b) => a + b, 0);
 
   const visible = [...(data ?? [])].sort((a, b) =>
     sortBy === "score"
@@ -426,12 +570,20 @@ export function Review() {
           // всего, ради него оно и делалось.
           if (approveKey) setApproved(post);
         })
-        .catch((err) =>
-          setHotkeyError(err instanceof ApiError ? err.message : "Не удалось обработать пост"),
-        )
+        .catch((err) => {
+          // 409 — пост уже обработан (вторая вкладка, двойное нажатие,
+          // массовое отклонение рядом). Это рассинхрон списка, а не сбой:
+          // краснеть незачем, invalidate ниже всё поправит.
+          if (err instanceof ApiError && err.status === 409) {
+            setHotkeyError(null);
+            return;
+          }
+          setHotkeyError(err instanceof ApiError ? err.message : "Не удалось обработать пост");
+        })
         .finally(() => {
           busyRef.current = false;
           queryClient.invalidateQueries({ queryKey: ["pending-review"] });
+          queryClient.invalidateQueries({ queryKey: ["pending-review-counts"] });
         });
     };
     window.addEventListener("keydown", onKey);
@@ -442,20 +594,16 @@ export function Review() {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-semibold text-ink">Проверка постов</h1>
 
+      <ThemeTabs
+        themes={themes.data ?? []}
+        counts={countByTheme}
+        activeId={themeId}
+        onSelect={setThemeId}
+      />
+
       <Card className="flex flex-col gap-2">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label className="flex flex-1 flex-col gap-1 text-xs text-ink-muted">
-            Тема
-            <Select value={themeId} onChange={(e) => setThemeId(e.target.value)}>
-              <option value="">Все темы</option>
-              {themes.data?.map((theme) => (
-                <option key={theme.id} value={theme.id}>
-                  {theme.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-1 text-xs text-ink-muted sm:w-56">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="flex flex-col gap-1 text-xs text-ink-muted sm:w-64">
             Порядок
             <Select
               value={sortBy}
@@ -465,11 +613,41 @@ export function Review() {
               <option value="new">Сначала новые</option>
             </Select>
           </label>
+          <div className="flex flex-1 justify-end">
+            <Button
+              variant="danger"
+              disabled={rejectAll.isPending || visibleCount === 0}
+              onClick={() => {
+                const where = themeId
+                  ? `в теме «${themeNameById.get(themeId) ?? "выбранной"}»`
+                  : "ВО ВСЕХ ТЕМАХ";
+                if (
+                  window.confirm(
+                    `Отклонить все ${visibleCount} ${plural(visibleCount, "пост", "поста", "постов")} ${where}?\n\n` +
+                      "Очередь очистится целиком. Рейтинг источников не изменится, и бот ничему не научится — " +
+                      "для обучения отклоняйте по одному с причиной.\n\nСразу после можно будет вернуть всё обратно.",
+                  )
+                ) {
+                  rejectAll.mutate();
+                }
+              }}
+            >
+              {rejectAll.isPending
+                ? "Отклоняю…"
+                : `Отклонить все${themeId ? " в теме" : ""} (${visibleCount})`}
+            </Button>
+          </div>
         </div>
         <p className="text-xs text-ink-muted">
-          Фильтр действует и на список ниже, и на кнопку «Сделать посты».
+          Вкладка темы действует и на список ниже, и на кнопку «Сделать посты», и на массовое
+          отклонение.
         </p>
+        {bulkError && <p className="text-sm text-bad">{bulkError}</p>}
       </Card>
+
+      {bulk && (
+        <BulkUndoBar count={bulk.count} ids={bulk.ids} onDone={() => setBulk(null)} />
+      )}
 
       <GenerateForm themeId={themeId} />
 
