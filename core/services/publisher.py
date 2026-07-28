@@ -22,6 +22,7 @@ from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
 from core.models.publication import Publication
 from core.models.target_channel import TargetChannel
+from core.services.tg_format import to_telegram_html
 
 logger = get_logger(__name__)
 
@@ -54,19 +55,28 @@ def fit_to_telegram_limit(text: str, signature: str = "", max_len: int = TELEGRA
 
 
 async def _send_post(bot: Bot, chat_id: int, text: str):
-    """Отправляет пост с Markdown-разметкой (жирный/курсив/ссылки от рерайта,
-    аудит, п.3.5). LLM иногда возвращает Markdown с несбалансированными * или _,
-    на котором Telegram отвечает 400 «can't parse entities» — в этом случае
-    повторяем без parse_mode, чтобы разметка не стоила публикации вообще."""
+    """Отправляет пост с разметкой (жирный/курсив/ссылки от рерайта, аудит,
+    п.3.5), переводя Markdown модели в HTML.
+
+    Раньше здесь стоял parse_mode=MARKDOWN по сырому тексту, и одиночная «*»
+    или «_» в живой фразе роняли отправку в 400 «can't parse entities» —
+    фолбэк спасал пост, но выпускал его в канал с голыми звёздочками.
+    core/services/tg_format.py экранирует текст целиком и расставляет теги
+    сам, поэтому неразбираемого HTML отсюда выйти уже не может. Фолбэк на
+    plain оставлен на случай, которого мы не предусмотрели: потерять
+    оформление лучше, чем потерять публикацию."""
     link_preview = LinkPreviewOptions(is_disabled=True)
     try:
         return await bot.send_message(
-            chat_id, text, parse_mode=ParseMode.MARKDOWN, link_preview_options=link_preview
+            chat_id,
+            to_telegram_html(text),
+            parse_mode=ParseMode.HTML,
+            link_preview_options=link_preview,
         )
     except TelegramBadRequest as exc:
         if "parse" not in str(exc).lower():
             raise
-        logger.warning("publisher.markdown_parse_failed_fallback_plain", chat_id=chat_id)
+        logger.warning("publisher.html_parse_failed_fallback_plain", chat_id=chat_id)
         return await bot.send_message(
             chat_id, text, parse_mode=None, link_preview_options=link_preview
         )
@@ -79,23 +89,23 @@ async def _send_post_with_photos(bot: Bot, chat_id: int, caption: str, photos: l
     идёт в Publication)."""
     files = [BufferedInputFile(data, filename=f"photo_{i}.jpg") for i, data in enumerate(photos)]
 
-    async def _send(parse_mode):
+    async def _send(parse_mode, body):
         if len(files) == 1:
-            return await bot.send_photo(chat_id, files[0], caption=caption, parse_mode=parse_mode)
+            return await bot.send_photo(chat_id, files[0], caption=body, parse_mode=parse_mode)
         media = [
-            InputMediaPhoto(media=f, caption=caption if i == 0 else None, parse_mode=parse_mode)
+            InputMediaPhoto(media=f, caption=body if i == 0 else None, parse_mode=parse_mode)
             for i, f in enumerate(files)
         ]
         messages = await bot.send_media_group(chat_id, media)
         return messages[0]
 
     try:
-        return await _send(ParseMode.MARKDOWN)
+        return await _send(ParseMode.HTML, to_telegram_html(caption))
     except TelegramBadRequest as exc:
         if "parse" not in str(exc).lower():
             raise
-        logger.warning("publisher.caption_markdown_failed_fallback_plain", chat_id=chat_id)
-        return await _send(None)
+        logger.warning("publisher.caption_html_failed_fallback_plain", chat_id=chat_id)
+        return await _send(None, caption)
 
 
 class NotPublishableError(Exception):

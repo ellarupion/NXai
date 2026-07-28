@@ -10,11 +10,13 @@
 from uuid import UUID
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from core.db import get_session_factory
 from core.logging import get_logger
 from core.models.enums import BotRole
+from core.services.tg_format import escape, to_telegram_html
 from core.services.review import (
     ReviewError,
     approve_candidate,
@@ -53,9 +55,11 @@ def build_review_keyboard(candidate_id: UUID) -> InlineKeyboardMarkup:
 
 
 def build_review_text(source_title: str, rewritten_text: str, score: float | None) -> str:
+    """Готовый HTML — по тем же причинам, что и у карточки редактора
+    (interfaces/bots/handlers/editor_review.py:build_editor_text)."""
     score_line = f" · score {score:.2f}" if score is not None else ""
-    preview = rewritten_text[:PREVIEW_LIMIT]
-    return f"📝 На одобрении — {source_title}{score_line}\n\n{preview}"
+    header = escape(f"📝 На одобрении — {source_title}{score_line}")
+    return f"{header}\n\n{to_telegram_html(rewritten_text[:PREVIEW_LIMIT])}"
 
 
 @router.callback_query(F.data.startswith(f"{CB_APPROVE}:"))
@@ -126,7 +130,13 @@ async def _finalize(callback: CallbackQuery, note: str) -> None:
     нельзя было обработать дважды и было видно, что уже сделано."""
     await callback.answer()
     try:
-        await callback.message.edit_text(f"{callback.message.text}\n\n{note}", reply_markup=None)
+        # html_text сохраняет разметку карточки — .text отдал бы её голым
+        # текстом (см. editor_review.py:_finalize).
+        await callback.message.edit_text(
+            f"{callback.message.html_text}\n\n{escape(note)}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=None,
+        )
     except Exception:
         # Сообщение могло быть слишком старым для edit — не критично.
         await callback.message.answer(note)

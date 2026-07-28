@@ -15,6 +15,7 @@ few-shot «пиши так») — так бот учится на правках
 from uuid import UUID
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -25,6 +26,7 @@ from core.logging import get_logger
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole
 from core.services.persona_learning import remember_good_example
+from core.services.tg_format import escape, to_telegram_html
 from core.services.review import (
     ReviewError,
     approve_candidate,
@@ -62,8 +64,15 @@ def build_editor_keyboard(candidate_id: UUID) -> InlineKeyboardMarkup:
 
 
 def build_editor_text(source_title: str, rewritten_text: str, score: float | None) -> str:
+    """Готовый HTML: редактор должен видеть пост ровно таким, каким он выйдет
+    в канал. Раньше карточка слалась без parse_mode, и «_курсив_» показывался
+    с подчёркиваниями — одобряли одно, публиковалось другое.
+
+    Шапка экранируется отдельно: parse_mode действует на сообщение целиком,
+    и «<» в названии чужого канала сломал бы всю карточку."""
     score_line = f" · виральность {score:.2f}" if score is not None else ""
-    return f"📝 Пост на проверку — {source_title}{score_line}\n\n{rewritten_text[:PREVIEW_LIMIT]}"
+    header = escape(f"📝 Пост на проверку — {source_title}{score_line}")
+    return f"{header}\n\n{to_telegram_html(rewritten_text[:PREVIEW_LIMIT])}"
 
 
 async def _editor_allowed(session: AsyncSession, theme_id, user_id: int) -> bool:
@@ -171,14 +180,23 @@ async def on_fix_text(message: Message, bot_role: BotRole, theme_id) -> None:
 
 
 async def _finalize(callback: CallbackQuery, note: str) -> None:
-    """Убирает кнопки, чтобы карточку нельзя было обработать дважды."""
+    """Убирает кнопки, чтобы карточку нельзя было обработать дважды.
+
+    html_text, а не text: .text отдаёт содержимое БЕЗ разметки, и переотправка
+    им стирала бы жирный и курсив у уже разобранной карточки — история в чате
+    редактора переставала бы совпадать с тем, что он одобрял."""
     await callback.answer()
+    body = callback.message.html_text
     try:
         if callback.message.text is not None:
-            await callback.message.edit_text(f"{callback.message.text}\n\n{note}", reply_markup=None)
+            await callback.message.edit_text(
+                f"{body}\n\n{escape(note)}", parse_mode=ParseMode.HTML, reply_markup=None
+            )
         else:  # карточка с фото — текст лежит в caption
             await callback.message.edit_caption(
-                caption=f"{callback.message.caption or ''}\n\n{note}", reply_markup=None
+                caption=f"{body}\n\n{escape(note)}",
+                parse_mode=ParseMode.HTML,
+                reply_markup=None,
             )
     except Exception:
         await callback.message.answer(note)

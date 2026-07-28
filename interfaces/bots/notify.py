@@ -9,12 +9,14 @@ API после «Сделать посты»: боты-процесс потом
 он не должен ронять генерацию."""
 
 from aiogram import Bot
+from aiogram.enums import ParseMode
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole
+from core.services.tg_format import visible_length
 from interfaces.bots.handlers.admin_review import build_review_keyboard, build_review_text
 
 logger = get_logger(__name__)
@@ -39,6 +41,7 @@ async def push_review_cards(session: AsyncSession, cards: list[dict]) -> None:
                     build_review_text(
                         card["source_channel_title"], card["rewritten_text"], card.get("score")
                     ),
+                    parse_mode=ParseMode.HTML,
                     reply_markup=build_review_keyboard(card["candidate_id"]),
                 )
     except Exception:
@@ -74,18 +77,30 @@ async def push_editor_card(
         async with Bot(token=channel_bot.bot_token) as bot:
             if photos:
                 file = BufferedInputFile(photos[0], filename="photo.jpg")
-                if len(text) <= CAPTION_LIMIT:
+                if visible_length(text) <= CAPTION_LIMIT:
                     await bot.send_photo(
-                        channel_bot.editor_chat_id, file, caption=text, reply_markup=keyboard
+                        channel_bot.editor_chat_id,
+                        file,
+                        caption=text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard,
                     )
                 else:
                     # Текст не влезает в подпись — фото отдельно, текст с
                     # кнопками отдельно (кнопки должны быть у текста).
                     await bot.send_photo(channel_bot.editor_chat_id, file)
                     await bot.send_message(
-                        channel_bot.editor_chat_id, text, reply_markup=keyboard
+                        channel_bot.editor_chat_id,
+                        text,
+                        parse_mode=ParseMode.HTML,
+                        reply_markup=keyboard,
                     )
             else:
-                await bot.send_message(channel_bot.editor_chat_id, text, reply_markup=keyboard)
+                await bot.send_message(
+                    channel_bot.editor_chat_id,
+                    text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard,
+                )
     except Exception:
         logger.exception("bots.push_editor_card_failed", extra={"candidate_id": str(candidate_id)})
