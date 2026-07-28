@@ -25,6 +25,7 @@ from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole, CandidatePostStatus
 from core.models.source_channel import SourceChannel
+from core.models.theme import Theme
 from core.services.backfill import backfill_source_channel
 from core.services.dedup import DedupService
 from core.services.persona import build_persona_prompt
@@ -55,6 +56,16 @@ class ForceGenerateService:
         self.embeddings = EmbeddingsClient(settings)
 
     async def generate(self, theme_id: UUID, count: int) -> list[GeneratedPost]:
+        theme = await self.session.get(Theme, theme_id)
+        if theme is None:
+            raise ForceGenerateError("Тема не найдена")
+        # Выключенная тема молчит вся целиком — и сама, и по кнопке. Иначе
+        # «Отключена» означало бы разное в разных местах панели.
+        if not theme.is_active:
+            raise ForceGenerateError(
+                "Тема отключена — включите её наверху карточки, иначе посты никуда не пойдут"
+            )
+
         source_channels = await self._active_source_channels(theme_id)
         if not source_channels:
             raise ForceGenerateError(

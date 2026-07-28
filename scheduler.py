@@ -102,9 +102,16 @@ async def backfill_job() -> None:
     received_total = 0
     async with session_factory() as session:
         settings = await get_effective_settings(session)
+        # Тема выключена — её источники не докачиваем. Раньше Theme.is_active
+        # проверял только дайджест, поэтому «Отключить тему» в панели почти
+        # ничего не выключало: сбор, рерайт и публикация шли своим чередом.
         result = await session.execute(
-            select(SourceChannel).where(
-                SourceChannel.is_active.is_(True), SourceChannel.ingest_session_id.is_not(None)
+            select(SourceChannel)
+            .join(Theme, Theme.id == SourceChannel.theme_id)
+            .where(
+                SourceChannel.is_active.is_(True),
+                SourceChannel.ingest_session_id.is_not(None),
+                Theme.is_active.is_(True),
             )
         )
         source_channels = list(result.scalars().all())
@@ -255,7 +262,14 @@ async def dedup_and_rewrite_job() -> None:
         result = await session.execute(
             select(CandidatePost.id, SourceChannel.theme_id)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)
-            .where(CandidatePost.status == CandidatePostStatus.SELECTED)
+            .join(Theme, Theme.id == SourceChannel.theme_id)
+            .where(
+                CandidatePost.status == CandidatePostStatus.SELECTED,
+                # Выключенная тема не должна ни рерайтить (это деньги за LLM),
+                # ни копить посты в «Проверке». Оператор жаловался ровно на
+                # это: тема «Отключена», а карточки в Telegram продолжают идти.
+                Theme.is_active.is_(True),
+            )
             .order_by(CandidatePost.score.desc().nulls_last())
         )
         # Скаляры, а не ORM-объекты: commit/rollback per-candidate экспайрит
@@ -407,6 +421,9 @@ async def publish_pool_job() -> None:
         for bot_id in bot_ids:
             channel_bot = await session.get(ChannelBot, bot_id)
             if channel_bot is None or channel_bot.theme_id is None:
+                continue
+            theme = await session.get(Theme, channel_bot.theme_id)
+            if theme is None or not theme.is_active:
                 continue
             # Режим обкатки: автопубликация выключена — бот только готовит
             # посты и шлёт их редактору, в канал сам не ставит.

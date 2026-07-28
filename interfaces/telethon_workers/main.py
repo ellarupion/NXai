@@ -23,6 +23,7 @@ from core.db import get_session_factory
 from core.logging import configure_logging, get_logger
 from core.models.source_channel import SourceChannel
 from core.models.telethon_session import TelethonSession
+from core.models.theme import Theme
 from core.services.effective_settings import get_effective_settings
 from core.services.heartbeat import WORKER_INGEST, record_heartbeat
 from core.services.ingest_candidates import IncomingCandidate, IngestCandidatesService
@@ -112,10 +113,16 @@ async def _load_session_configs() -> dict:
         configs = {}
         for ts in sessions:
             rows = await session.execute(
-                select(SourceChannel.tg_chat_id).where(
+                select(SourceChannel.tg_chat_id)
+                .join(Theme, Theme.id == SourceChannel.theme_id)
+                .where(
                     SourceChannel.ingest_session_id == ts.id,
                     SourceChannel.is_active.is_(True),
                     SourceChannel.tg_chat_id.is_not(None),
+                    # Выключенная тема не читается вовсе. Смена состава
+                    # каналов меняет signature, и reconcile перезапустит
+                    # воркер сессии сам — отдельного сигнала не нужно.
+                    Theme.is_active.is_(True),
                 )
             )
             chat_ids = sorted(row[0] for row in rows.all())
