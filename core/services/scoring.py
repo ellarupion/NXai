@@ -24,7 +24,6 @@ from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.metrics_snapshot import CandidateMetricsSnapshot
 from core.models.source_channel import SourceChannel
-from core.services.trust_score import REJECTED_PENALTY, adjust_trust_score
 from core.statistics.client import PostStats
 
 logger = get_logger(__name__)
@@ -131,12 +130,22 @@ class ScoringService:
 
         candidate.status = CandidatePostStatus.REJECTED
         await self.session.flush()
-        # Штраф доверия — только если кандидат реально скорился и не добрал
-        # порога. score=None означает «мы его и не оценивали» (старый пост из
-        # докачки, скрытые счётчики канала) — источник в этом не виноват, и
-        # массовый первый backfill не должен обваливать trust_score.
-        if candidate.score is not None:
-            await adjust_trust_score(self.session, candidate.source_channel_id, -REJECTED_PENALTY)
+        # ВАЖНО: здесь НЕТ штрафа доверия, и это не упущение.
+        #
+        # Раньше стоял adjust_trust_score(-REJECTED_PENALTY), и это замыкало
+        # систему саму на себя. Порог отбора нормирован по медиане канала, то
+        # есть большинство постов не проходит его ПО ПОСТРОЕНИЮ — половина
+        # постов канала по определению ниже его же медианы. Штрафуя источник за
+        # каждый такой пост, мы штрафовали его за нормальную статистику: от 1.0
+        # до нижней границы 0.1 хватало 18 отклонений. А дальше score умножался
+        # на 0.1, и чтобы пройти порог 1.5, посту требовалось 15 медиан канала —
+        # недостижимо. Источник замолкал навсегда, и по этой петле легла вся
+        # система: 5171 отклонение подряд при 22 публикациях.
+        #
+        # Доверие теперь снижают только осмысленные сигналы: РУЧНОЕ отклонение
+        # оператором (core/services/review.py — «этот пост плохой») и дубли
+        # (core/services/dedup.py — «источник повторяет чужое»). Не пройти
+        # порог виральности — это штатный исход, а не претензия к источнику.
         logger.info("scoring.rejected_matured", candidate_id=str(candidate.id), score=candidate.score)
         return True
 
