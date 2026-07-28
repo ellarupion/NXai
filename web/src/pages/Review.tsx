@@ -399,11 +399,12 @@ function ThemeTabs({
 }) {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   const orphan = counts.get(null) ?? 0;
-  // Темы без единого поста в очереди не показываем: вкладка, по которой всегда
-  // пусто, — это шум, а не навигация. Исключение — выбранная тема: если её
-  // только что разобрали до нуля, вкладка не должна исчезать из-под курсора,
-  // иначе непонятно, где ты находишься и почему список пуст.
-  const withPosts = themes.filter((t) => (counts.get(t.id) ?? 0) > 0 || t.id === activeId);
+  /* Показываем ВСЕ темы, включая пустые. Скрывать те, где очередь пуста, —
+     заманчиво (меньше шума), но это ломает главный сценарий: вкладка выбирает
+     тему и для кнопки «Сделать посты», а она нужна ровно тогда, когда
+     одобрять нечего. При скрытии пустых на чистой очереди не оставалось ни
+     одной вкладки — и сгенерировать посты становилось невозможно. */
+  const visibleThemes = themes;
 
   const chip = (active: boolean) =>
     `inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0 ${
@@ -416,7 +417,7 @@ function ThemeTabs({
         Все темы
         <span className="font-mono tabular-nums opacity-70">{total}</span>
       </button>
-      {withPosts.map((t) => (
+      {visibleThemes.map((t) => (
         <button
           key={t.id}
           type="button"
@@ -424,7 +425,13 @@ function ThemeTabs({
           onClick={() => onSelect(t.id)}
         >
           <span className="max-w-[14rem] truncate">{t.name}</span>
-          <span className="font-mono tabular-nums opacity-70">{counts.get(t.id) ?? 0}</span>
+          <span
+            className={`font-mono tabular-nums ${
+              (counts.get(t.id) ?? 0) > 0 ? "opacity-70" : "opacity-40"
+            }`}
+          >
+            {counts.get(t.id) ?? 0}
+          </span>
         </button>
       ))}
       {orphan > 0 && (
