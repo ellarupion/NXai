@@ -1,0 +1,122 @@
+# Проверки на каждый пуш и каждый PR.
+#
+# Зачем. Весь контроль качества держался на том, что человек не забудет прогнать тесты
+# перед пушем. Это ровно тот класс ошибок, который машина не совершает: прогон здесь
+# один, без пайпов (`pytest | tail` возвращает код tail, а не pytest, и «exit 0» ничего
+# не значит), а красный крестик виден в списке коммитов на GitHub.
+#
+# Команды те же, что в CLAUDE.md для локального прогона. Если CI и локальный порядок
+# сдачи разойдутся, доверия не будет ни к одному из них.
+
+name: Проверки
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Пуш в ветку отменяет её же предыдущий незавершённый прогон: проверять код, который уже
+# переписан, смысла нет, а очередь он занимает.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Питон — линтер, тесты, миграции
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Именно pgvector, а не обычный postgres: дедупликация ищет похожие посты по
+        # векторам (core/services/dedup.py), и без расширения не поднимутся миграции.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: nxai
+          POSTGRES_PASSWORD: nxai
+          POSTGRES_DB: nxai
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nxai -d nxai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://nxai:nxai@localhost:5432/nxai
+      REDIS_URL: redis://localhost:6379/0
+      # Значения-заглушки: тесты подменяют внешние сервисы фейками и наружу не ходят.
+      # TELEGRAM_API_ID именно числом — пустая строка не проходит валидацию pydantic.
+      SECRET_ENCRYPTION_KEY: Y2ktb25seS1rZXktbm90LWZvci1wcm9kdWN0aW9uLTMyIQ==
+      TELEGRAM_API_ID: "12345"
+      TELEGRAM_API_HASH: ci-only
+      ENVIRONMENT: dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установить зависимости
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+          pip install pytest pytest-asyncio ruff
+
+      - name: Линтер
+        run: ruff check .
+
+      - name: Тесты
+        # Одним прогоном и без пайпа: параллельные прогоны пишут в одни таблицы и дают
+        # сотни падений, не имеющих отношения к коду.
+        run: pytest -q
+
+      - name: Миграции накатываются на чистую базу
+        # Тесты создают схему сами; отдельный прогон миграций с нуля ловит другое —
+        # миграцию, которая работает только поверх уже существующих данных.
+        run: |
+          python -c "
+          import asyncio, asyncpg
+          async def main():
+              c = await asyncpg.connect('postgresql://nxai:nxai@localhost:5432/postgres')
+              await c.execute('DROP DATABASE IF EXISTS nxai_migrations')
+              await c.execute('CREATE DATABASE nxai_migrations')
+              await c.close()
+          asyncio.run(main())
+          "
+          DATABASE_URL=postgresql+asyncpg://nxai:nxai@localhost:5432/nxai_migrations \
+            alembic upgrade head
+
+  web:
+    name: Панель — типы, сборка, линтер
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # ci, а не install: ставит ровно то, что записано в package-lock.json, и падает
+      # при расхождении с package.json.
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run build
+      - run: npm run lint
