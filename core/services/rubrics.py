@@ -31,6 +31,7 @@ from core.models.enums import CandidatePostStatus, LlmUsageKind
 from core.models.source_channel import SourceChannel
 from core.models.theme import Theme
 from core.services.llm_usage import record_usage
+from core.services.automation import get_automation
 
 logger = get_logger(__name__)
 
@@ -176,8 +177,12 @@ async def classify(
     return None
 
 
-async def recent_rubrics(session: AsyncSession, theme_id: UUID, limit: int = RECENT_WINDOW) -> list[str]:
+async def recent_rubrics(
+    session: AsyncSession, theme_id: UUID, limit: int | None = None
+) -> list[str]:
     """Рубрики последних опубликованных постов темы, свежие первыми."""
+    if limit is None:
+        limit = (await get_automation(session)).rubric_recent_window
     rows = (
         await session.execute(
             select(CandidatePost.rubric)

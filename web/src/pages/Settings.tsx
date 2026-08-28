@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { channelBotsQuery, generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
 import { Button, Callout, Card, Checkbox, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
+import { AutomationForm } from "../components/AutomationForm";
 import { errorText } from "../lib/errors";
 import type { AdminAccount, ChannelBot, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
@@ -477,6 +478,19 @@ export function Settings() {
       </p>
 
       <GeneralSettingsCard />
+
+      {/* Поведение — отдельным блоком и выше ключей: ключи задают один раз при
+          настройке, а пороги оператор трогает, когда система ведёт себя не так. */}
+      <div className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold text-ink">Поведение системы</h2>
+        <p className="text-sm text-ink-muted">
+          Пороги и времена, по которым система решает, что брать в работу и как часто.
+          Раньше эти числа жили в коде, и поменять их можно было только пересборкой:
+          менять их пришлось однажды на горящем проде, и каждая попытка стоила
+          развёртывания заново.
+        </p>
+      </div>
+      <AutomationForm />
 
       {!isSuper && me.data && (
         <Callout>

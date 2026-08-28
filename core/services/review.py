@@ -15,7 +15,7 @@ from core.models.candidate_post import CandidatePost
 from core.models.source_channel import SourceChannel
 from core.models.enums import CandidatePostStatus
 from core.models.post_version import PostVersion
-from core.services.trust_score import REJECTED_PENALTY, adjust_trust_score
+from core.services.trust_score import TrustEvent, adjust_trust_score
 
 
 class ReviewError(Exception):
@@ -128,7 +128,7 @@ async def reject_candidate(
     candidate.status = CandidatePostStatus.REJECTED
     candidate.rejection_reason = reason
     await session.flush()
-    await adjust_trust_score(session, candidate.source_channel_id, -REJECTED_PENALTY)
+    await adjust_trust_score(session, candidate.source_channel_id, TrustEvent.REJECTED)
     return candidate
 
 

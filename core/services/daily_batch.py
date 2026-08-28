@@ -37,6 +37,7 @@ from core.models.enums import BotRole, CandidatePostStatus
 from core.models.source_channel import SourceChannel
 from core.models.theme import Theme
 from core.services.panel_settings import get_or_create_panel_settings
+from core.services.automation import get_automation
 from core.services.scheduler_pool import resolve_zoneinfo
 
 # Потолок на одну просьбу. Не про деньги (их стережёт лимит планировщика), а
@@ -62,7 +63,7 @@ async def daily_target(session: AsyncSession, theme_id: UUID) -> int:
         )
     )
     target = int((cadence or DEFAULT_CADENCE).get("posts_per_day_target") or 0)
-    return max(1, min(target, MAX_DAILY_BATCH))
+    return max(1, min(target, (await get_automation(session)).max_daily_batch))
 
 
 async def order_batch(session: AsyncSession, theme: Theme, size: int) -> None:

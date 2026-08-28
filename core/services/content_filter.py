@@ -65,8 +65,11 @@ _WEAK = [(re.compile(p, re.IGNORECASE), label) for p, label in WEAK_AD_PATTERNS]
 _MENTION = re.compile(r"@[A-Za-z][A-Za-z0-9_]{4,}")
 
 
-def is_too_short_to_rewrite(text: str) -> bool:
-    return len(text.strip()) < MIN_REWRITABLE_LENGTH
+def is_too_short_to_rewrite(text: str, min_length: int | None = None) -> bool:
+    """min_length берётся из настроек панели там, где до них можно дотянуться.
+    Константа остаётся значением по умолчанию: функция чистая, её зовут и из мест
+    без сессии, и терять эту простоту ради настройки не стоит."""
+    return len(text.strip()) < (MIN_REWRITABLE_LENGTH if min_length is None else min_length)
 
 
 def ad_signals(text: str) -> list[str]:

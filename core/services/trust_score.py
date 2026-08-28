@@ -1,39 +1,83 @@
-"""Корректировка SourceChannel.trust_score по исходам его кандидатов —
-источник, чьи посты систематически не проходят скоринг/дедуп, постепенно
-теряет вес при последующем скоринге (core/services/scoring.py:record_snapshot
-умножает итоговый score на trust_score), вместо того чтобы решение о доверии
-принималось только вручную в панели (ROADMAP.md Phase 5 изначально это
-планировало как ручной вывод источника из ротации — здесь это происходит
-постепенно и автоматически, панель лишь показывает текущее значение)."""
+"""Доверие источнику: вес, которым домножается скор его постов.
 
+Источник, чьи посты стабильно отклоняют, должен опускаться в отборе сам, без того чтобы
+оператор вычёркивал каналы руками. Источник, исправно поставляющий годное, — наоборот,
+подниматься. Скор считается как «пересылки к медиане канала», домноженные на этот вес,
+и сравнивается с порогом отбора (core/services/scoring.py).
+
+История, которую здесь важно помнить. Раньше автоматическое отклонение по таймауту
+дозревания тоже понижало доверие — и получилась петля: каждое отклонение опускало вес,
+опущенный вес делал порог недостижимым, из-за чего следующий пост тоже отклонялся.
+Восемнадцать отклонений — и посту требовалось набрать пятнадцать медиан канала. Тема
+замолчала на недели, а в базе лежало 5173 отклонённых поста против 22 опубликованных.
+
+Отсюда два решения, которые нельзя откатывать не подумав:
+  * автоматическое отклонение по таймауту доверие НЕ трогает (см. scoring.py) — вес
+    двигают только события, в которых есть суждение: ручное отклонение, дубликат,
+    удачный рерайт;
+  * нижняя граница держится такой, из которой источник способен выбраться, и теперь
+    она настраивается в панели, а не правится пересборкой образа.
+
+Событие, а не число. Раньше вызывающий передавал готовую дельту, и три места из
+четырёх писали её со знаком минус, а одно — с плюсом. Перепутанный знак поймать было
+нечем: система молча начала бы поощрять источники за отклонения. Теперь передаётся
+СОБЫТИЕ, а величину и знак определяет этот модуль по настройкам.
+"""
+
+import enum
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.logging import get_logger
 from core.models.source_channel import SourceChannel
+from core.services.automation import AutomationSettings, get_automation
 
-# Нижняя граница именно 0.5, а не «почти ноль»: trust_score — МНОЖИТЕЛЬ к
-# скору, и значение вроде 0.1 означало бы «источнику нужно набрать 15 медиан,
-# чтобы пройти порог», то есть тихое отключение источника без ведома оператора.
-# Выводить канал из ротации — решение человека (кнопка на странице
-# «Публикации» и тумблер во вкладке темы), автоматика лишь двигает вес в
-# пределах, из которых источник способен выбраться.
-MIN_TRUST_SCORE = 0.5
-MAX_TRUST_SCORE = 2.0
-
-# Дубликат — источник просто повторил чужую новость (мягкий сигнал), явный
-# reject (ручной или по таймауту дозревания) — источник дал заведомо слабый
-# пост, штраф больше. Успешный рерайт — источник исправно поставляет контент.
-REJECTED_PENALTY = 0.05
-DUPLICATE_PENALTY = 0.02
-SUCCESS_BONUS = 0.02
+logger = get_logger(__name__)
 
 
-async def adjust_trust_score(session: AsyncSession, source_channel_id: UUID, delta: float) -> None:
+class TrustEvent(str, enum.Enum):
+    """Что случилось с постом источника. Знак и величину смотри в _delta_for."""
+
+    REJECTED = "rejected"      # редактор отклонил пост руками — сильный сигнал
+    DUPLICATE = "duplicate"    # источник повторил чужую новость — мягкий сигнал
+    SUCCESS = "success"        # пост дошёл до готового рерайта — плюс
+
+
+def _delta_for(event: TrustEvent, automation: AutomationSettings) -> float:
+    if event is TrustEvent.REJECTED:
+        return -automation.trust_rejected_penalty
+    if event is TrustEvent.DUPLICATE:
+        return -automation.trust_duplicate_penalty
+    return automation.trust_success_bonus
+
+
+async def adjust_trust_score(
+    session: AsyncSession,
+    source_channel_id: UUID,
+    event: TrustEvent,
+    automation: AutomationSettings | None = None,
+) -> None:
+    """Двигает вес источника по событию, оставаясь в настроенных границах.
+
+    automation можно передать, если вызывающий уже прочитал настройки: планировщик
+    читает их раз за тик, и ходить в базу на каждого кандидата незачем."""
     source_channel = await session.get(SourceChannel, source_channel_id)
     if source_channel is None:
         return
+
+    automation = automation or await get_automation(session)
+    delta = _delta_for(event, automation)
+    before = source_channel.trust_score
     source_channel.trust_score = max(
-        MIN_TRUST_SCORE, min(MAX_TRUST_SCORE, source_channel.trust_score + delta)
+        automation.min_trust_score,
+        min(automation.max_trust_score, source_channel.trust_score + delta),
+    )
+    logger.info(
+        "trust_score.adjusted",
+        source_channel_id=str(source_channel_id),
+        event=event.value,
+        before=round(before, 3),
+        after=round(source_channel.trust_score, 3),
     )
     await session.flush()

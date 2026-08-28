@@ -38,6 +38,7 @@ from core.services.admin_notify import (
     format_error,
     format_published,
 )
+from core.services.automation import get_automation
 from core.services.backfill import backfill_source_channel
 from core.services.crosspost import crosspost_text
 from core.services.dedup import DedupService
@@ -62,17 +63,9 @@ logger = get_logger(__name__)
 BACKFILL_INTERVAL_MINUTES = 15
 SCORE_REFRESH_INTERVAL_MINUTES = 10
 DEDUP_REWRITE_INTERVAL_MINUTES = 5
-# Рерайт — единственная по-настоящему дорогая операция в системе (Sonnet на
-# каждый пост), и до этого лимита у неё не было вообще. Джоб брал ВСЕХ
-# SELECTED-кандидатов за тик: стоило порогу отбора стать проходимым, как
-# накопленные за недели кандидаты уходили в LLM одной пачкой. Два ограничителя:
-#   * сколько постов переписываем за один тик — потолок скорости трат;
-#   * сколько готовых постов держим про запас на тему — потолок смысла: писать
-#     больше, чем тема успеет опубликовать, значит платить за то, что протухнет
-#     в статусе REWRITTEN.
-REWRITE_BATCH_LIMIT = 5
-REWRITE_STOCK_DAYS = 2
-MIN_REWRITE_STOCK = 5
+# Ограничители рерайта (сколько постов за тик и какой запас держать) переехали в
+# настройки панели — core/services/automation.py. Числа эти пришлось однажды
+# подбирать на горящем проде, и менять их пересборкой образа неправильно.
 PUBLISH_POOL_INTERVAL_SECONDS = 60
 AD_WATCHDOG_INTERVAL_MINUTES = 5
 HEARTBEAT_INTERVAL_SECONDS = 60
@@ -240,6 +233,9 @@ async def dedup_and_rewrite_job() -> None:
         settings = await get_effective_settings(session)
         llm = LLMClient(settings)
         embeddings = EmbeddingsClient(settings)
+        # Пороги читаем раз за тик: смена в панели подхватывается без перезапуска
+        # планировщика, но на каждого кандидата в базу не ходим.
+        automation = await get_automation(session)
 
         # Сколько готовых постов уже лежит по темам — темы с запасом на
         # несколько дней вперёд в этот тик не трогаем вовсе.
@@ -259,7 +255,9 @@ async def dedup_and_rewrite_job() -> None:
         limits: dict = {}
         for theme_id, cadence in cadence_rows.all():
             per_day = int((cadence or {}).get("posts_per_day_target") or 0)
-            limits[theme_id] = max(per_day * REWRITE_STOCK_DAYS, MIN_REWRITE_STOCK)
+            limits[theme_id] = max(
+                per_day * automation.rewrite_stock_days, automation.min_rewrite_stock
+            )
 
         # Ручные темы работают не по запасу, а по заказу: сколько постов
         # оператор попросил на сегодня и сколько из них ещё не доехало.
@@ -311,10 +309,10 @@ async def dedup_and_rewrite_job() -> None:
         for candidate_id, theme_id in rows:
             if theme_id is None:
                 continue
-            if rewritten >= REWRITE_BATCH_LIMIT:
+            if rewritten >= automation.rewrite_batch_limit:
                 logger.info(
                     "scheduler.rewrite_batch_limit",
-                    limit=REWRITE_BATCH_LIMIT,
+                    limit=automation.rewrite_batch_limit,
                     pending=len(rows) - rewritten,
                 )
                 break
@@ -322,7 +320,7 @@ async def dedup_and_rewrite_job() -> None:
                 if debts[theme_id] <= 0:
                     skipped_manual += 1
                     continue
-            elif stock.get(theme_id, 0) >= limits.get(theme_id, MIN_REWRITE_STOCK):
+            elif stock.get(theme_id, 0) >= limits.get(theme_id, automation.min_rewrite_stock):
                 skipped_stocked += 1
                 continue
             # try/except покрывает и дедуп (Voyage API умеет падать так же, как

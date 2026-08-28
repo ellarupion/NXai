@@ -28,6 +28,7 @@ from core.models.enums import BotRole, CandidatePostStatus
 from core.models.source_channel import SourceChannel
 from core.models.theme import Theme
 from core.services.backfill import backfill_source_channel
+from core.services.automation import get_automation
 from core.services.dedup import DedupService
 from core.services.persona import build_persona_prompt
 from core.services import rubrics
@@ -235,7 +236,8 @@ class ForceGenerateService:
         общем инфоповоде, и залетает у всех одно и то же. Из широкого пула
         раскладываем по подтемам и берём по кругу — так в партию попадает и
         менее виральный пост другой подтемы вместо пятого про деньги."""
-        pool_size = min(count * POOL_FACTOR, MAX_POOL)
+        automation = await get_automation(self.session)
+        pool_size = min(count * automation.selection_pool_factor, MAX_POOL)
         result = await self.session.execute(
             select(CandidatePost)
             .join(SourceChannel, SourceChannel.id == CandidatePost.source_channel_id)

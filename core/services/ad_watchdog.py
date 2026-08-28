@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.logging import get_logger
+from core.services.automation import get_automation
 from core.models.ad_detection import AdDetection
 from core.models.enums import AdDetectionAction
 from core.models.publication import Publication
@@ -76,7 +77,8 @@ async def cover_if_due(
     detection = await session.get(AdDetection, ad_detection_id, with_for_update=True)
     if detection is None or detection.action is not AdDetectionAction.PENDING:
         return False
-    if now - detection.detected_at < COVER_DELAY:
+    cover_delay = timedelta(minutes=(await get_automation(session)).ad_cover_delay_minutes)
+    if now - detection.detected_at < cover_delay:
         return False
 
     target_channel = await session.get(TargetChannel, detection.target_channel_id)

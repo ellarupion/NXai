@@ -19,7 +19,7 @@ from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
 from core.services.content_filter import is_too_short_to_rewrite
 from core.services.llm_usage import UsageRecord, record_usage
-from core.services.trust_score import SUCCESS_BONUS, adjust_trust_score
+from core.services.trust_score import TrustEvent, adjust_trust_score
 
 logger = get_logger(__name__)
 
@@ -132,7 +132,7 @@ class RewriteService:
         # место бонуса за успех (core/services/force_generate.py тоже проходит
         # через этот метод, а затем сам переводит статус в PENDING_REVIEW —
         # дублировать бонус в core/services/review.py:approve_candidate не нужно).
-        await adjust_trust_score(self.session, candidate.source_channel_id, SUCCESS_BONUS)
+        await adjust_trust_score(self.session, candidate.source_channel_id, TrustEvent.SUCCESS)
 
         logger.info(
             "rewrite.generated",

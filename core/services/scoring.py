@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
+from core.services.automation import AutomationSettings, get_automation
 from core.models.metrics_snapshot import CandidateMetricsSnapshot
 from core.models.source_channel import SourceChannel
 from core.statistics.client import PostStats
@@ -30,10 +31,10 @@ logger = get_logger(__name__)
 
 CHECKPOINT_OFFSETS = (timedelta(minutes=30), timedelta(hours=2), timedelta(hours=6))
 MAX_CHECKPOINT_OFFSET = max(CHECKPOINT_OFFSETS)
-MIN_SAMPLES_FOR_MEDIAN = 5
-# Порог отбора эвристический (см. ARCHITECTURE.md §5 — калибровка на реальных
-# данных темы откладывается до Phase 1/2, как и HIGH_SIMILARITY_THRESHOLD в NX).
-SELECTION_SCORE_THRESHOLD = 1.5
+# Порог отбора и минимум выборки для медианы переехали в настройки панели
+# (core/services/automation.py): это самые влиятельные числа в системе, и менять их
+# пересборкой образа — ровно та ситуация, из-за которой тема однажды замолчала
+# на недели.
 
 
 @dataclass(frozen=True)
@@ -43,8 +44,16 @@ class MaturationCheck:
 
 
 class ScoringService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, automation: AutomationSettings | None = None) -> None:
         self.session = session
+        # Настройки читаем один раз и лениво: сервис создаётся на тик планировщика и
+        # обрабатывает десятки кандидатов — ходить в базу за порогом на каждого незачем.
+        self._automation = automation
+
+    async def automation(self) -> AutomationSettings:
+        if self._automation is None:
+            self._automation = await get_automation(self.session)
+        return self._automation
 
     async def record_snapshot(self, candidate_id: UUID, stats: PostStats, taken_at: datetime) -> float | None:
         """Сохраняет очередной снапшот и пересчитывает CandidatePost.score по
@@ -97,9 +106,7 @@ class ScoringService:
             CandidatePostStatus.SCORING,
         )
 
-    async def promote_if_selected(
-        self, candidate_id: UUID, threshold: float = SELECTION_SCORE_THRESHOLD
-    ) -> bool:
+    async def promote_if_selected(self, candidate_id: UUID, threshold: float | None = None) -> bool:
         """SCORING -> SELECTED, если последний score прошёл порог. Дедуп
         (core/services/dedup.py) должен отрабатывать ПОСЛЕ этого шага, а не до —
         дешёвый скоринг сначала отсеивает слабые посты, дорогой embedding-дедуп
@@ -108,6 +115,8 @@ class ScoringService:
         candidate = await self.session.get(CandidatePost, candidate_id)
         if candidate is None:
             raise ValueError(f"CandidatePost {candidate_id} not found")
+        if threshold is None:
+            threshold = (await self.automation()).selection_score_threshold
         if candidate.score is None or candidate.score < threshold:
             return False
 
@@ -169,6 +178,6 @@ class ScoringService:
             latest_by_candidate[candidate_post_id] = forwards
 
         values = list(latest_by_candidate.values())
-        if len(values) < MIN_SAMPLES_FOR_MEDIAN:
+        if len(values) < (await self.automation()).min_samples_for_median:
             return None
         return statistics.median(values)

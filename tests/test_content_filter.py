@@ -105,20 +105,46 @@ def test_signals_are_reported_for_debugging():
 
 # --- ограничители расхода на LLM ------------------------------------------
 
-def test_rewrite_has_batch_and_stock_limits():
-    """Рерайт — единственная дорогая операция (Sonnet на пост), и до этого
-    джоб брал ВСЕХ SELECTED-кандидатов за тик без ограничений. На проде это
-    вылилось в непрерывный расход: порог отбора стал проходимым, и недели
-    накопленных кандидатов ушли в LLM одной пачкой.
+def test_rewrite_limits_cap_spending_for_any_allowed_setting():
+    """Рерайт — единственная дорогая операция (умная модель на пост), и до появления
+    лимитов джоб брал ВСЕХ отобранных кандидатов за тик. На проде это вылилось в
+    непрерывный расход: порог отбора стал проходимым, и недели накопленных кандидатов
+    ушли в модель одной пачкой.
 
-    Тест сторожит оба потолка — скорости и смысла."""
+    Теперь ограничители настраиваются из панели, поэтому сторожить надо не одно
+    значение, а ГРАНИЦЫ: важно, что даже выкрутив их на максимум, оператор не получит
+    неконтролируемый расход."""
     import scheduler
+    from core.services.automation import AutomationSettings
 
-    assert scheduler.REWRITE_BATCH_LIMIT > 0
-    # Потолок скорости: сколько постов максимум уйдёт в LLM за час.
-    per_hour = scheduler.REWRITE_BATCH_LIMIT * (60 // scheduler.DEDUP_REWRITE_INTERVAL_MINUTES)
-    assert per_hour <= 120, f"{per_hour} рерайтов в час — это неконтролируемый расход"
-    # Потолок смысла: запас готовых постов не должен превышать нескольких дней
-    # публикации, иначе платим за то, что протухнет в статусе REWRITTEN.
-    assert scheduler.REWRITE_STOCK_DAYS <= 3
-    assert scheduler.MIN_REWRITE_STOCK >= 1
+    field = AutomationSettings.model_fields["rewrite_batch_limit"]
+    worst_batch = next(m.le for m in field.metadata if hasattr(m, "le"))
+    per_hour = worst_batch * (60 // scheduler.DEDUP_REWRITE_INTERVAL_MINUTES)
+    assert per_hour <= 700, f"{per_hour} рерайтов в час — это неконтролируемый расход"
+
+    stock_field = AutomationSettings.model_fields["rewrite_stock_days"]
+    worst_stock = next(m.le for m in stock_field.metadata if hasattr(m, "le"))
+    assert worst_stock <= 7, "запас больше недели — платим за то, что протухнет"
+
+
+def test_rewrite_limits_defaults_are_conservative():
+    """Значения по умолчанию должны быть заметно мягче предельных: система из коробки
+    не обязана позволять максимум, который допускает форма."""
+    from core.services.automation import AutomationSettings
+
+    defaults = AutomationSettings()
+    assert defaults.rewrite_batch_limit <= 10
+    assert defaults.rewrite_stock_days <= 3
+    assert defaults.min_rewrite_stock >= 1
+
+
+def test_stock_cannot_be_set_above_what_theme_can_publish():
+    """Запас больше, чем тема успеет опубликовать за отведённые дни, — это оплаченные
+    посты в стол. Каждое значение по отдельности в границах, поймать можно только
+    парной проверкой."""
+    import pytest
+
+    from core.services.automation import AutomationSettings
+
+    with pytest.raises(ValueError):
+        AutomationSettings(min_rewrite_stock=50, max_daily_batch=1, rewrite_stock_days=1)

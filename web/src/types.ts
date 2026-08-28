@@ -353,4 +353,20 @@ export interface LlmUsage {
 export interface AutomationSettings {
   daily_budget_usd: number;
   budget_warn_percent: number;
+  selection_score_threshold: number;
+  min_samples_for_median: number;
+  selection_pool_factor: number;
+  min_trust_score: number;
+  max_trust_score: number;
+  trust_duplicate_penalty: number;
+  trust_rejected_penalty: number;
+  trust_success_bonus: number;
+  dedup_similarity_threshold: number;
+  rewrite_batch_limit: number;
+  rewrite_stock_days: number;
+  min_rewrite_stock: number;
+  max_daily_batch: number;
+  min_rewritable_length: number;
+  rubric_recent_window: number;
+  ad_cover_delay_minutes: number;
 }

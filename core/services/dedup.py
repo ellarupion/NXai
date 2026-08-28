@@ -18,7 +18,8 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.models.source_channel import SourceChannel
-from core.services.trust_score import DUPLICATE_PENALTY, adjust_trust_score
+from core.services.trust_score import TrustEvent, adjust_trust_score
+from core.services.automation import AutomationSettings, get_automation
 
 logger = get_logger(__name__)
 
@@ -33,9 +34,22 @@ class SimilarCandidate:
 
 
 class DedupService:
-    def __init__(self, session: AsyncSession, embeddings: EmbeddingsClient) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        embeddings: EmbeddingsClient,
+        automation: AutomationSettings | None = None,
+    ) -> None:
         self.session = session
         self.embeddings = embeddings
+        # Лениво и один раз: сервис живёт на тик планировщика и разбирает десятки
+        # кандидатов — ходить в базу за порогом на каждого незачем.
+        self._settings = automation
+
+    async def _automation(self) -> AutomationSettings:
+        if self._settings is None:
+            self._settings = await get_automation(self.session)
+        return self._settings
 
     async def embed_and_store(self, candidate_id: UUID) -> list[float]:
         candidate = await self.session.get(CandidatePost, candidate_id)
@@ -102,7 +116,8 @@ class DedupService:
 
         embedding = await self.embed_and_store(candidate_id)
         similar = await self.find_similar_in_theme(candidate_id, theme_id, embedding)
-        duplicates = [c for c in similar if c.similarity >= HIGH_SIMILARITY_THRESHOLD]
+        threshold = (await self._automation()).dedup_similarity_threshold
+        duplicates = [c for c in similar if c.similarity >= threshold]
         if not duplicates:
             return None
 
@@ -115,7 +130,7 @@ class DedupService:
             other.status = CandidatePostStatus.DUPLICATE
             other.duplicate_of_id = candidate.id
             await self.session.flush()
-            await adjust_trust_score(self.session, other.source_channel_id, -DUPLICATE_PENALTY)
+            await adjust_trust_score(self.session, other.source_channel_id, TrustEvent.DUPLICATE)
             logger.info(
                 "dedup.merged_other_into_current",
                 candidate_id=str(candidate_id),
@@ -126,7 +141,7 @@ class DedupService:
         candidate.status = CandidatePostStatus.DUPLICATE
         candidate.duplicate_of_id = best_duplicate.candidate_id
         await self.session.flush()
-        await adjust_trust_score(self.session, candidate.source_channel_id, -DUPLICATE_PENALTY)
+        await adjust_trust_score(self.session, candidate.source_channel_id, TrustEvent.DUPLICATE)
         logger.info(
             "dedup.current_merged_into_other",
             candidate_id=str(candidate_id),
