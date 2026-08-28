@@ -65,3 +65,19 @@ class AuditAction(str, enum.Enum):
     LOGIN = "login"
     APPROVE = "approve"
     BOT_TOKEN_CHANGE = "bot_token_change"
+
+
+class LlmUsageKind(str, enum.Enum):
+    """Раздел работы, к которому относится обращение к модели.
+
+    Не техническое имя сервиса, а то, что понятно оператору: именно это он видит на
+    странице расходов. Разбивка нужна, чтобы отвечать на вопрос «какая кнопка дорогая»,
+    а не только «сколько всего ушло»."""
+
+    REWRITE = "rewrite"                  # рерайт поста в персону темы — самое дорогое
+    CLASSIFY_RUBRIC = "classify_rubric"  # отнести пост к подтеме
+    SUGGEST_RUBRICS = "suggest_rubrics"  # подобрать список подтем темы
+    DISCOVERY = "discovery"              # подобрать запросы для поиска источников
+    DIGEST = "digest"                    # дайджест дня
+    STYLE_EXTRACT = "style_extract"      # извлечь стиль канала из образцов
+    PERSONA_PREVIEW = "persona_preview"  # песочница персоны в панели

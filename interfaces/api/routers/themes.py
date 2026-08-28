@@ -18,6 +18,7 @@ from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.theme import Theme
+from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.rubrics import MAX_RUBRICS, RubricError, suggest_rubrics
 from core.services.scheduler_pool import resolve_zoneinfo
@@ -156,9 +157,18 @@ async def suggest_theme_rubrics(
     его руками и сохраняет обычным PUT. Сами по себе рубрики не применяются —
     иначе одна неудачная выдача модели молча переразметила бы тему."""
     try:
-        return RubricSuggestOut(rubrics=await suggest_rubrics(session, theme_id))
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
+    try:
+        rubrics = await suggest_rubrics(session, theme_id)
     except RubricError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Коммит нужен ради записи расхода: сам подбор ничего не сохраняет, но вызов
+    # модели уже оплачен и должен попасть в счётчик даже при отказе оператора.
+    await session.commit()
+    return RubricSuggestOut(rubrics=rubrics)
 
 
 class ThemeHealthStage(BaseModel):

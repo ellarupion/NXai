@@ -1,9 +1,11 @@
 import { api } from "./client";
 import type {
   Alert,
+  AutomationSettings,
   ChannelBot,
   DashboardStats,
   Engagement,
+  LlmUsage,
   GeneralSettings,
   Me,
   Onboarding,
@@ -129,4 +131,14 @@ export const publicationsQuery = (params: {
 export const pendingReviewCountsQuery = () => ({
   queryKey: ["pending-review-counts"],
   queryFn: () => api.get<ThemePendingCount[]>("/candidates/pending-review/counts"),
+});
+
+export const llmUsageQuery = (days: number) => ({
+  queryKey: ["llm-usage", days],
+  queryFn: () => api.get<LlmUsage>(`/llm-usage?days=${days}`),
+});
+
+export const automationQuery = () => ({
+  queryKey: ["automation"],
+  queryFn: () => api.get<AutomationSettings>("/settings/automation"),
 });

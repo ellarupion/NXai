@@ -21,6 +21,7 @@ const Queue = lazy(() => import("./pages/Queue").then((m) => ({ default: m.Queue
 const Publications = lazy(() =>
   import("./pages/Publications").then((m) => ({ default: m.Publications })),
 );
+const Spending = lazy(() => import("./pages/Spending").then((m) => ({ default: m.Spending })));
 const NotFound = lazy(() => import("./pages/NotFound").then((m) => ({ default: m.NotFound })));
 
 function ProtectedLayout() {
@@ -45,6 +46,7 @@ function AppRoutes() {
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/themes" element={<Themes />} />
+          <Route path="/spending" element={<Spending />} />
           <Route path="/themes/:themeId" element={<Themes />} />
           <Route path="/telethon-sessions" element={<TelethonSessions />} />
           <Route path="/review" element={<Review />} />

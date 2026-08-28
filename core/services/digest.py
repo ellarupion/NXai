@@ -18,9 +18,10 @@ from core.llm.client import REWRITE_MODEL, LLMClient
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
-from core.models.enums import BotRole, CandidatePostStatus
+from core.models.enums import BotRole, CandidatePostStatus, LlmUsageKind
 from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
+from core.services.llm_usage import record_usage
 from core.services.persona import build_persona_prompt
 
 logger = get_logger(__name__)
@@ -79,6 +80,9 @@ async def build_digest(
     joined = "\n\n---\n\n".join(c.raw_text for c in top if c.raw_text)
     system_prompt = f"{persona_prompt}\n\n{DIGEST_INSTRUCTIONS}"
     completion = await llm.complete(model=REWRITE_MODEL, system_prompt=system_prompt, user_prompt=joined)
+    await record_usage(
+        session, completion, kind=LlmUsageKind.DIGEST, model=REWRITE_MODEL, theme_id=theme_id,
+    )
 
     digest = CandidatePost(
         source_channel_id=representative_source_id,

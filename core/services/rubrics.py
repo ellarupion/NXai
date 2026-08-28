@@ -27,9 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.llm.client import CLASSIFICATION_MODEL, LLMClient
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
-from core.models.enums import CandidatePostStatus
+from core.models.enums import CandidatePostStatus, LlmUsageKind
 from core.models.source_channel import SourceChannel
 from core.models.theme import Theme
+from core.services.llm_usage import record_usage
 
 logger = get_logger(__name__)
 
@@ -83,6 +84,10 @@ async def suggest_rubrics(session: AsyncSession, theme_id: UUID) -> list[str]:
             user_prompt="\n".join(context),
             cache_system_prompt=False,
             max_tokens=300,
+        )
+        await record_usage(
+            session, result, kind=LlmUsageKind.SUGGEST_RUBRICS,
+            model=CLASSIFICATION_MODEL, theme_id=theme_id,
         )
     except Exception as exc:
         logger.warning("rubrics.suggest_failed", error=type(exc).__name__)
@@ -146,6 +151,13 @@ async def classify(
             user_prompt=text[:2000],
             cache_system_prompt=False,
             max_tokens=30,
+        )
+        # Классификация дешёвая, но частая: на партию в 8 постов приходится до
+        # 32 вызовов на пуле отбора. Без учёта эта строка расходов была бы невидимой
+        # именно потому, что каждый вызов копеечный.
+        await record_usage(
+            session, result, kind=LlmUsageKind.CLASSIFY_RUBRIC,
+            model=CLASSIFICATION_MODEL, theme_id=theme_id,
         )
     except Exception as exc:
         logger.warning("rubrics.classify_failed", error=type(exc).__name__)

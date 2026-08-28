@@ -316,3 +316,41 @@ export interface ChannelCandidate {
   found_via: string;
   already_added: boolean;
 }
+
+/* Расходы на ИИ. cost в долларах: счёт от провайдера приходит в них, а придуманный
+   курс рубля врал бы. */
+export interface LlmUsageKind {
+  kind: string;
+  title: string;
+  cost_usd: number;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+}
+
+export interface LlmUsageBudget {
+  limit_usd: number;
+  spent_today_usd: number;
+  percent: number;
+  enabled: boolean;
+  exceeded: boolean;
+  near_limit: boolean;
+  warn_percent: number;
+}
+
+export interface LlmUsage {
+  days: number;
+  total_usd: number;
+  budget: LlmUsageBudget;
+  by_kind: LlmUsageKind[];
+  by_day: { day: string; cost_usd: number }[];
+  by_model: [string, number][];
+  by_theme: { theme_id: string | null; theme_name: string; cost_usd: number }[];
+}
+
+/* Пороги и времена поведения. Схема на бэке — core/services/automation.py. */
+export interface AutomationSettings {
+  daily_budget_usd: number;
+  budget_warn_percent: number;
+}

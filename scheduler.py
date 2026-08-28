@@ -44,6 +44,8 @@ from core.services.dedup import DedupService
 from core.services.digest import build_digest
 from core.services.effective_settings import get_effective_settings
 from core.services.heartbeat import WORKER_SCHEDULER, record_heartbeat
+from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
+from core.services.llm_usage import write_snapshots
 from core.services.media import download_candidate_photos
 from core.services.panel_settings import get_or_create_panel_settings
 from core.services.publisher import PublisherService
@@ -290,6 +292,18 @@ async def dedup_and_rewrite_job() -> None:
         # MissingGreenlet под asyncpg (та же причина, что в score_refresh_job).
         rows = [(candidate_id, theme_id) for candidate_id, theme_id in result.all()]
 
+        # Потолок проверяем ОДИН раз за тик, до цикла: внутри он не изменится, а
+        # запрос суммы за сутки на каждого кандидата — лишняя работа. Именно этот
+        # джоб однажды ушёл в непрерывный рерайт, так что фоновый расход обязан
+        # упираться в тот же лимит, что и ручные операции: иначе потолок не защищает
+        # ровно от того случая, ради которого заведён.
+        try:
+            await ensure_budget(session)
+        except DailyBudgetExceededError as exc:
+            logger.warning("scheduler.rewrite_skipped_budget")
+            await _notify_admin(session, str(exc))
+            return
+
         dedup = DedupService(session, embeddings)
         rewrite = RewriteService(session, llm, embeddings)
         skipped_stocked = 0
@@ -314,6 +328,7 @@ async def dedup_and_rewrite_job() -> None:
             # try/except покрывает и дедуп (Voyage API умеет падать так же, как
             # LLM), и рерайт; коммит на кандидата — ошибка на одном не теряет
             # уже готовые рерайты этого тика.
+            rewrite.last_usage = None
             try:
                 duplicate_of = await dedup.resolve_duplicates(candidate_id, theme_id)
                 if duplicate_of is not None:
@@ -400,7 +415,15 @@ async def dedup_and_rewrite_job() -> None:
                             photos=photos,
                         )
             except Exception as exc:
+                # Снимок расхода забираем ДО отката: строка LlmUsage живёт в сессии и
+                # откатится вместе с ней, а деньги провайдер уже списал. Без этого чем
+                # чаще система сбоит, тем дешевле она выглядит — и тем позже упрётся
+                # в дневной потолок.
+                lost_usage = rewrite.last_usage
                 await session.rollback()
+                if lost_usage is not None:
+                    await write_snapshots(session, [lost_usage])
+                    await session.commit()
                 logger.exception("scheduler.rewrite_failed", candidate_id=str(candidate_id))
                 theme = await session.get(Theme, theme_id)
                 await _notify_admin(

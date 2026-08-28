@@ -6,8 +6,12 @@
 Возвращает текст-описание; сохранять его в ChannelBot.persona_prompt или нет
 решает оператор в панели (предлагаем, не применяем молча)."""
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.llm.client import REWRITE_MODEL, LLMClient
 from core.logging import get_logger
+from core.models.enums import LlmUsageKind
+from core.services.llm_usage import record_usage
 
 logger = get_logger(__name__)
 
@@ -91,7 +95,9 @@ async def extract_style(llm: LLMClient, reference_posts: list[str]) -> str:
     return completion.text.strip()
 
 
-async def extract_style_structured(llm: LLMClient, reference_posts: list[str]) -> dict:
+async def extract_style_structured(
+    session: AsyncSession, llm: LLMClient, reference_posts: list[str]
+) -> dict:
     """Структурный вариант extract_style: возвращает частичный persona_config
     для предзаполнения конструктора. При непарсибельном ответе LLM падает в
     текстовый режим: весь ответ кладётся в custom."""
@@ -105,6 +111,12 @@ async def extract_style_structured(llm: LLMClient, reference_posts: list[str]) -
     user_prompt = "\n\n---\n\n".join(posts)
     completion = await llm.complete(
         model=REWRITE_MODEL, system_prompt=_STRUCTURED_SYSTEM_PROMPT, user_prompt=user_prompt
+    )
+    # Разбор стиля идёт умной моделью по десятку постов целиком — один из самых
+    # дорогих разовых вызовов в системе, и оператор нажимает его в конструкторе
+    # персоны сколько захочет.
+    await record_usage(
+        session, completion, kind=LlmUsageKind.STYLE_EXTRACT, model=REWRITE_MODEL
     )
     try:
         result = _parse_structured(completion.text)

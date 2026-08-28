@@ -14,12 +14,14 @@ from core.llm.client import REWRITE_MODEL, LLMClient
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import DEFAULT_CADENCE, ChannelBot
 from core.models.source_channel import SourceChannel
-from core.models.enums import AuditAction, BotRole
+from core.models.enums import AuditAction, BotRole, LlmUsageKind
 from core.services.audit import record_audit
 from core.services.review import REJECTION_REASONS
 from core.services.rewrite import ANTI_COPY_INSTRUCTIONS
 from core.services.effective_settings import get_effective_settings
 from core.services.persona import build_persona_prompt
+from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
+from core.services.llm_usage import record_usage
 from core.services.style_extractor import StyleExtractorError, extract_style_structured
 from interfaces.api.auth import require_superadmin
 from interfaces.api.deps import get_db
@@ -168,12 +170,20 @@ async def extract_style_endpoint(
     """StyleExtractor (аудит, п.7.2): по примерам постов LLM предлагает
     persona-промпт. Ничего не сохраняет — оператор вставляет результат в
     персону бота сам."""
+    try:
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
     settings = await get_effective_settings(session)
     llm = LLMClient(settings)
     try:
-        config = await extract_style_structured(llm, payload.reference_posts)
+        config = await extract_style_structured(session, llm, payload.reference_posts)
     except StyleExtractorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Коммит ради записи расхода: разбор стиля ничего не сохраняет, но умная модель
+    # уже отработала по десятку постов, и это один из самых дорогих разовых вызовов.
+    await session.commit()
     # Текстовое поле оставляем для обратной совместимости и как читаемое
     # резюме: это custom из структуры (или весь ответ при сбое парсинга).
     return ExtractStyleResponse(
@@ -327,6 +337,11 @@ async def preview_rewrite(
     custom = payload.persona_prompt if payload.persona_prompt is not None else bot.persona_prompt
     persona = build_persona_prompt(config, custom)
 
+    try:
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
     settings = await get_effective_settings(session)
     llm = LLMClient(settings)
     system_prompt = f"{persona}\n\n{ANTI_COPY_INSTRUCTIONS}" if persona else ANTI_COPY_INSTRUCTIONS
@@ -336,6 +351,11 @@ async def preview_rewrite(
         )
     except Exception as exc:  # noqa: BLE001 - ошибка LLM уходит оператору как текст
         raise HTTPException(status_code=400, detail=f"Рерайт не удался: {exc}") from exc
+    await record_usage(
+        session, completion, kind=LlmUsageKind.PERSONA_PREVIEW,
+        model=REWRITE_MODEL, theme_id=bot.theme_id,
+    )
+    await session.commit()
     return PreviewRewriteOut(original=original, rewritten=completion.text)
 
 

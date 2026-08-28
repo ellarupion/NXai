@@ -19,14 +19,16 @@ const NAV_ITEMS = [
   { to: "/review", label: "Проверка" },
   { to: "/queue", label: "Очередь" },
   { to: "/publications", label: "Публикации" },
+  { to: "/spending", label: "Расходы" },
   { to: "/telethon-sessions", label: "Аккаунты" },
   { to: "/settings", label: "Настройки" },
 ];
 
-// На телефоне в нижнюю панель влезает пять разделов; эти два открываются из шапки:
-// их трогают при настройке, а не в ежедневной работе.
+// На телефоне в нижнюю панель влезает пять разделов; остальные открываются из шапки:
+// их смотрят при настройке и разборе, а не в ежедневной работе.
 const EXTRA_ITEMS = NAV_ITEMS.filter(
-  (item) => item.to === "/telethon-sessions" || item.to === "/settings",
+  (item) =>
+    item.to === "/spending" || item.to === "/telethon-sessions" || item.to === "/settings",
 );
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {

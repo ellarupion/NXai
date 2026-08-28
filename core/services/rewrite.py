@@ -14,9 +14,11 @@ from core.embeddings.client import EmbeddingsClient
 from core.llm.client import REWRITE_MODEL, LLMClient
 from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
-from core.models.enums import CandidatePostStatus
+from core.models.enums import CandidatePostStatus, LlmUsageKind
 from core.models.post_version import PostVersion
+from core.models.source_channel import SourceChannel
 from core.services.content_filter import is_too_short_to_rewrite
+from core.services.llm_usage import UsageRecord, record_usage
 from core.services.trust_score import SUCCESS_BONUS, adjust_trust_score
 
 logger = get_logger(__name__)
@@ -49,6 +51,10 @@ class RewriteService:
         self.session = session
         self.llm = llm
         self.embeddings = embeddings
+        # Снимок расхода последнего вызова. Нужен вызывающему на случай, когда его
+        # транзакция откатится уже после того, как модель отработала и деньги списаны
+        # (см. core/services/llm_usage.py:UsageRecord).
+        self.last_usage: UsageRecord | None = None
 
     async def generate(self, candidate_id: UUID, persona_prompt: str) -> PostVersion:
         candidate = await self.session.get(CandidatePost, candidate_id)
@@ -70,6 +76,24 @@ class RewriteService:
             model=REWRITE_MODEL,
             system_prompt=system_prompt,
             user_prompt=candidate.raw_text,
+        )
+        # Расход пишем СРАЗУ, до проверок ниже. Модель уже отработала и деньги уже
+        # списаны: если ниже мы откажемся от поста (только реклама, слишком похоже на
+        # исходник), расход всё равно был. Снимок кладём в last_usage — вызывающий
+        # может переписать его в чистой сессии, если его транзакция откатится.
+        self.last_usage = await record_usage(
+            self.session,
+            result,
+            kind=LlmUsageKind.REWRITE,
+            model=REWRITE_MODEL,
+            entity_id=candidate_id,
+            # Тему берём через источник: расход надо уметь разложить по темам, иначе
+            # общий итог не отвечает на вопрос «какая тема столько ест».
+            theme_id=await self.session.scalar(
+                select(SourceChannel.theme_id).where(
+                    SourceChannel.id == candidate.source_channel_id
+                )
+            ),
         )
 
         # Модель сама сообщает, что вырезать было нечего, кроме рекламы

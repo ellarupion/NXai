@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
 from core.services.source_discovery import (
     DEFAULT_MAX_DAYS_SILENT,
     DiscoveryError,
@@ -32,9 +33,18 @@ class QueriesOut(BaseModel):
 @router.post("/{theme_id}/queries", response_model=QueriesOut)
 async def build_queries(theme_id: UUID, session: AsyncSession = Depends(get_db)) -> QueriesOut:
     try:
-        return QueriesOut(queries=await suggest_queries(session, theme_id))
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
+    try:
+        queries = await suggest_queries(session, theme_id)
     except DiscoveryError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Коммит ради записи расхода: сам подбор запросов ничего не сохраняет, но вызов
+    # модели уже оплачен и должен попасть в счётчик.
+    await session.commit()
+    return QueriesOut(queries=queries)
 
 
 class SearchPayload(BaseModel):

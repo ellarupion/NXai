@@ -7,12 +7,13 @@ core/services/effective_settings.py). Раздел gated require_superadmin це
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from core.models.enums import AuditAction
 from core.services.audit import record_audit
+from core.services.automation import AutomationSettings, get_automation, set_automation
 from core.services.panel_settings import get_or_create_panel_settings, update_secret_overrides
 from interfaces.api.auth import get_current_admin, require_superadmin
 from interfaces.api.deps import get_db
@@ -67,6 +68,51 @@ async def update_general_settings(
     return GeneralSettingsOut(
         timezone=panel_settings.timezone, pool_cooldown_days=panel_settings.pool_cooldown_days
     )
+
+
+automation_router = APIRouter(
+    prefix="/settings/automation", tags=["settings"], dependencies=[Depends(get_current_admin)]
+)
+
+
+@automation_router.get("", response_model=AutomationSettings)
+async def read_automation(session: AsyncSession = Depends(get_db)) -> AutomationSettings:
+    return await get_automation(session)
+
+
+@automation_router.put("", response_model=AutomationSettings)
+async def write_automation(
+    payload: dict, session: AsyncSession = Depends(get_db)
+) -> AutomationSettings:
+    """Частичное обновление: панель шлёт только изменённые поля, а проверяется НАБОР
+    целиком. Ошибку проверки отдаём с человеческим текстом — иначе оператор получил бы
+    сырой JSON pydantic и не понял бы, какое поле и почему не подошло."""
+    try:
+        applied = await set_automation(session, payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=_human_validation_error(exc)) from exc
+
+    await record_audit(
+        session, AuditAction.SETTINGS_CHANGE, "panel_settings", "automation",
+        {"changed": sorted(payload.keys())},
+    )
+    await session.commit()
+    return applied
+
+
+def _human_validation_error(exc: ValidationError) -> str:
+    """«Input should be less than or equal to 1000» ничего не говорит оператору.
+    Собираем строку из имени поля и границ, которые он видит рядом с полем."""
+    parts: list[str] = []
+    for err in exc.errors():
+        field = ".".join(str(p) for p in err["loc"]) or "значение"
+        ctx = err.get("ctx") or {}
+        if "le" in ctx or "ge" in ctx:
+            lo, hi = ctx.get("ge", "—"), ctx.get("le", "—")
+            parts.append(f"«{field}»: допустимо от {lo} до {hi}")
+        else:
+            parts.append(f"«{field}»: {err.get('msg', 'неверное значение')}")
+    return "Настройки не сохранены. " + "; ".join(parts)
 
 
 class SecretStatus(BaseModel):

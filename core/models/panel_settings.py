@@ -1,4 +1,5 @@
 from sqlalchemy import Integer, LargeBinary, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -36,6 +37,13 @@ class PanelSettings(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # (аудит, п.3.3): без этого тема с пулом из 2 постов крутила бы их
     # попеременно без конца. 0 отключает кулдаун.
     pool_cooldown_days: Mapped[int] = mapped_column(Integer, default=7)
+
+    # Пороги и времена поведения — одним JSONB, схема в
+    # core/services/automation.py:AutomationSettings. NULL или пусто = все значения по
+    # умолчанию, поэтому система работает и до первого захода в настройки.
+    # Не колонками: набор полей меняется с каждой задачей, которая трогает поведение,
+    # и заводить миграцию под каждое число — работа без смысла.
+    automation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     anthropic_api_key_override: Mapped[str] = mapped_column(Text, default="")
     voyage_api_key_override: Mapped[str] = mapped_column(Text, default="")

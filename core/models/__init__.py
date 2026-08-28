@@ -11,6 +11,7 @@ from core.models.metrics_snapshot import CandidateMetricsSnapshot, PublicationMe
 from core.models.panel_settings import PanelSettings
 from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
+from core.models.llm_usage import LlmUsage
 from core.models.publication import Publication
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
@@ -30,6 +31,7 @@ __all__ = [
     "CandidateMetricsSnapshot",
     "PublicationMetricsSnapshot",
     "PoolPost",
+    "LlmUsage",
     "Publication",
     "AdDetection",
     "Admin",

@@ -34,6 +34,7 @@ from interfaces.api.deps import get_db
 from interfaces.bots.notify import push_review_cards
 from core.models.theme import Theme
 from core.services.daily_batch import daily_target, order_batch, today_in_project_tz
+from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
 
 router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(get_current_admin)])
 
@@ -80,6 +81,11 @@ class PendingReviewOut(BaseModel):
 
 @router.post("/generate", response_model=list[GeneratedPostOut])
 async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depends(get_db)) -> list[GeneratedPostOut]:
+    try:
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+
     count = max(1, min(payload.count, MAX_GENERATE_COUNT))
     settings = await get_effective_settings(session)
     try:
@@ -127,6 +133,11 @@ async def generate_daily_batch(
     theme = await session.get(Theme, payload.theme_id)
     if theme is None:
         raise HTTPException(status_code=404, detail="Тема не найдена")
+
+    try:
+        await ensure_budget(session)
+    except DailyBudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
 
     size = await daily_target(session, payload.theme_id)
     today = await today_in_project_tz(session)

@@ -35,6 +35,8 @@ from telethon.sessions import StringSession
 from core.config import Settings
 from core.llm.client import CLASSIFICATION_MODEL, LLMClient
 from core.logging import get_logger
+from core.models.enums import LlmUsageKind
+from core.services.llm_usage import record_usage
 from core.models.channel_bot import ChannelBot
 from core.models.enums import BotRole
 from core.models.source_channel import SourceChannel
@@ -123,6 +125,11 @@ async def suggest_queries(session: AsyncSession, theme_id: UUID) -> list[str]:
             "ИИ не ответил — проверьте ключ Anthropic в «Настройках». "
             "Запросы можно задать и вручную"
         ) from exc
+
+    await record_usage(
+        session, result, kind=LlmUsageKind.DISCOVERY,
+        model=CLASSIFICATION_MODEL, theme_id=theme_id,
+    )
 
     queries = _parse_queries(result.text)
     if not queries:

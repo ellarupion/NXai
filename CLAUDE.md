@@ -64,7 +64,7 @@
 
 | Что менялось | Что прогонять |
 | --- | --- |
-| только `web/` | `npm run build && npx tsc --noEmit && npm run lint` + живая проверка |
+| только `web/` | `npm run build && npm run lint` + живая проверка |
 | сервисы, роутеры, бот, планировщик | целевые тесты → полный прогон → `ruff check .` |
 | модели | то же плюс новая миграция и `alembic upgrade head` |
 | только `ROADMAP.md` / `docs/` / комментарии | ничего |
@@ -80,8 +80,10 @@ python -m pytest -q > /tmp/run.log 2>&1; echo "exit=$?"; tail -3 /tmp/run.log
 # 3. Линтер
 ruff check .
 
-# 4. Фронтенд
-cd web && npm run build && npx tsc --noEmit && npm run lint
+# 4. Фронтенд. Проверка типов — именно через `npm run build` (внутри `tsc -b`):
+#    голый `npx tsc --noEmit` в этом проекте НЕ проверяет страницы и пропускает
+#    даже синтаксическую ошибку в JSX. На этом уже попадались.
+cd web && npm run build && npm run lint
 ```
 
 **Никогда не запускать два прогона одновременно.** База одна, тесты пишут в те же
