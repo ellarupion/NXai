@@ -56,6 +56,9 @@ class PublicationOut(BaseModel):
     text: str
 
     # Только для kind=candidate: откуда пост взялся и чем его переписали.
+    # candidate_id нужен, чтобы открыть паспорт поста — «почему вышел именно
+    # такой»; у постов из собственного запаса кандидата нет и кнопки не будет.
+    candidate_id: UUID | None = None
     source_channel_id: UUID | None = None
     source_channel_title: str | None = None
     source_channel_username: str | None = None
@@ -160,6 +163,7 @@ async def list_publications(
             kind="pool" if pub.source is PublicationSource.POOL else "candidate",
             is_ad_cover=pub.is_ad_cover,
             text=(rewritten or pool_text or ""),
+            candidate_id=cand_id,
             source_channel_id=src_id,
             source_channel_title=src_title,
             source_channel_username=src_username,
@@ -173,7 +177,7 @@ async def list_publications(
         )
         for (
             pub, th_id, th_name, ch_title, ch_chat_id, rewritten, persona, pool_text,
-            _cand_id, raw_text, score, rubric, src_id, src_title, src_username, src_active,
+            cand_id, raw_text, score, rubric, src_id, src_title, src_username, src_active,
             views, forwards,
         ) in rows
     ]

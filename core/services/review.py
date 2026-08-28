@@ -15,6 +15,7 @@ from core.models.candidate_post import CandidatePost
 from core.models.source_channel import SourceChannel
 from core.models.enums import CandidatePostStatus
 from core.models.post_version import PostVersion
+from core.services.post_passport import edit_facts, merge_passport
 from core.services.trust_score import TrustEvent, adjust_trust_score
 
 
@@ -74,7 +75,7 @@ async def unapprove_candidate(session: AsyncSession, candidate_id: UUID) -> Cand
 
 
 async def edit_candidate_text(
-    session: AsyncSession, candidate_id: UUID, new_text: str
+    session: AsyncSession, candidate_id: UUID, new_text: str, via: str = "panel"
 ) -> PostVersion:
     """Правка текста рерайта перед одобрением (аудит, п.4.1). Не переписываем
     существующую версию на месте, а создаём НОВУЮ PostVersion с
@@ -87,6 +88,15 @@ async def edit_candidate_text(
         raise ReviewError("Текст поста не может быть пустым")
 
     candidate = await _get_pending_candidate(session, candidate_id)
+
+    # Длину «до» снимаем ЗАРАНЕЕ: ниже selected_post_version_id перенаправится на
+    # новую версию, и после этого «предыдущей» уже не найти.
+    previous = (
+        await session.get(PostVersion, candidate.selected_post_version_id)
+        if candidate.selected_post_version_id
+        else None
+    )
+    length_before = len(previous.rewritten_text) if previous else 0
 
     existing_versions = await session.scalar(
         select(func.count()).select_from(PostVersion).where(
@@ -104,6 +114,13 @@ async def edit_candidate_text(
     await session.flush()
     candidate.selected_post_version_id = version.id
     await session.flush()
+
+    # Правка редактора — единственный след того, что модель написала не то. Без него
+    # на вопрос «а мы это правили руками?» отвечать нечем: в карточке виден только
+    # итоговый текст.
+    await merge_passport(session, candidate_id, edit_facts(
+        via=via, length_before=length_before, length_after=len(new_text),
+    ))
     return version
 
 

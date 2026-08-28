@@ -9,8 +9,9 @@ from core.logging import get_logger
 from core.models.enums import AuditAction
 from core.services.admin import AdminService
 from core.services.audit import record_audit
+
 from interfaces.api.auth import CurrentAdmin, create_access_token, get_current_admin
-from interfaces.api.deps import get_db
+from interfaces.api.deps import client_ip, get_db
 
 logger = get_logger(__name__)
 
@@ -57,15 +58,18 @@ class MeOut(BaseModel):
 async def login(
     payload: LoginPayload, request: Request, session: AsyncSession = Depends(get_db)
 ) -> TokenOut:
-    client_ip = request.client.host if request.client else "unknown"
-    _check_login_rate_limit(client_ip)
+    # Тот же адрес, что попадёт в журнал: за nginx request.client.host — это адрес
+    # контейнера, одинаковый для всех, и ограничение по нему считало бы попытки
+    # входа со всего интернета как одну кучу.
+    ip = client_ip(request) or "unknown"
+    _check_login_rate_limit(ip)
     admin = await AdminService(session).verify_password(payload.username, payload.password)
     if admin is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Неверный логин или пароль")
     token = create_access_token(admin.id, admin.username, admin.is_superadmin)
     await record_audit(
         session, AuditAction.LOGIN, "admin", str(admin.id),
-        payload={"username": admin.username, "ip": client_ip},
+        actor_admin_username=admin.username,
     )
     await session.commit()
     return TokenOut(access_token=token)

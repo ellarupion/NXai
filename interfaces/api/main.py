@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import get_settings
 from core.logging import configure_logging
+from core.request_context import reset_actor_ip, set_actor_ip
+from interfaces.api.deps import client_ip
 from interfaces.api.routers import router
 
 
@@ -26,6 +28,18 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def remember_actor_ip(request: Request, call_next):
+        # Кладём адрес на время запроса, чтобы записи журнала подхватывали его сами
+        # (core/services/audit.py). reset обязателен и обязательно в finally: воркер
+        # переиспользует поток между запросами, и оставленное значение приписало бы
+        # чужой адрес следующему действию.
+        token = set_actor_ip(client_ip(request))
+        try:
+            return await call_next(request)
+        finally:
+            reset_actor_ip(token)
 
     app.include_router(router)
 

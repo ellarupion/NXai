@@ -22,6 +22,7 @@ from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
 from core.models.publication import Publication
 from core.models.target_channel import TargetChannel
+from core.services.post_passport import merge_passport, publish_facts
 from core.services.tg_format import to_telegram_html
 
 logger = get_logger(__name__)
@@ -178,6 +179,17 @@ class PublisherService:
 
         candidate.status = CandidatePostStatus.PUBLISHED
         await self.session.flush()
+
+        # Названия каналов, а не идентификаторы: паспорт читает человек. В NXai пост
+        # уходит во ВСЕ активные каналы темы, поэтому здесь список, а не одно имя.
+        channel_titles = []
+        for target_channel_id in target_channel_ids:
+            channel = await self._get_target_channel(target_channel_id)
+            channel_titles.append(channel.title)
+        await merge_passport(
+            self.session, candidate_id,
+            publish_facts(channels=channel_titles, with_photo=bool(photos)),
+        )
         return publications
 
     async def publish_pool_post(

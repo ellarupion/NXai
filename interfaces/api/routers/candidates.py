@@ -29,16 +29,30 @@ from core.services.review import (
     restore_rejected,
     unapprove_candidate,
 )
-from interfaces.api.auth import get_current_admin
+from interfaces.api.auth import CurrentAdmin, get_current_admin
 from interfaces.api.deps import get_db
 from interfaces.bots.notify import push_review_cards
 from core.models.theme import Theme
+from core.models.post_passport import PostPassport
 from core.services.daily_batch import daily_target, order_batch, today_in_project_tz
+from core.services.llm_usage import spent_on_entity
 from core.services.llm_budget import DailyBudgetExceededError, ensure_budget
 
 router = APIRouter(prefix="/candidates", tags=["candidates"], dependencies=[Depends(get_current_admin)])
 
 MAX_GENERATE_COUNT = 10
+
+
+async def _theme_of(session: AsyncSession, candidate_id: UUID) -> UUID | None:
+    """Тема поста для записи в журнал — чтобы журнал можно было отфильтровать по теме.
+
+    Отдельным запросом, а не по загруженному кандидату: к моменту записи он уже
+    может быть отклонён и выгружен из сессии, а тема нужна независимо от исхода."""
+    return await session.scalar(
+        select(SourceChannel.theme_id)
+        .join(CandidatePost, CandidatePost.source_channel_id == SourceChannel.id)
+        .where(CandidatePost.id == candidate_id)
+    )
 
 
 class GenerateRequest(BaseModel):
@@ -80,7 +94,11 @@ class PendingReviewOut(BaseModel):
 
 
 @router.post("/generate", response_model=list[GeneratedPostOut])
-async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depends(get_db)) -> list[GeneratedPostOut]:
+async def generate_posts(
+    payload: GenerateRequest,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
+) -> list[GeneratedPostOut]:
     try:
         await ensure_budget(session)
     except DailyBudgetExceededError as exc:
@@ -92,6 +110,17 @@ async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depen
         results = await ForceGenerateService(session, settings).generate(payload.theme_id, count)
     except ForceGenerateError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    await record_audit(
+        session,
+        AuditAction.GENERATE,
+        "theme",
+        str(payload.theme_id),
+        {"requested": count, "delivered": len(results), "mode": "count"},
+        actor_admin_username=current.username,
+        theme_id=payload.theme_id,
+    )
+    await session.commit()
 
     # Дублируем свежую очередь в admin-бот карточками с кнопками (аудит, п.6.1):
     # можно одобрять прямо из Telegram, не открывая панель.
@@ -121,7 +150,9 @@ async def generate_posts(payload: GenerateRequest, session: AsyncSession = Depen
 
 @router.post("/daily-batch", response_model=DailyBatchOut)
 async def generate_daily_batch(
-    payload: DailyBatchRequest, session: AsyncSession = Depends(get_db)
+    payload: DailyBatchRequest,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
 ) -> DailyBatchOut:
     """«Посты на сегодня»: одна партия размером в дневное расписание темы.
 
@@ -153,6 +184,15 @@ async def generate_daily_batch(
     # тема осталась бы с долгом, который планировщик принялся бы гасить сам,
     # молча и в фоне. А оператор просил партию именно сейчас и видел ошибку.
     await order_batch(session, theme, size)
+    await record_audit(
+        session,
+        AuditAction.GENERATE,
+        "theme",
+        str(payload.theme_id),
+        {"requested": size, "delivered": len(results), "mode": "batch", "batch_date": str(today)},
+        actor_admin_username=current.username,
+        theme_id=payload.theme_id,
+    )
     await session.commit()
 
     await push_review_cards(
@@ -179,6 +219,48 @@ async def generate_daily_batch(
             )
             for r in results
         ],
+    )
+
+
+class PassportOut(BaseModel):
+    """Все поля необязательные: паспорт лежит в JSON, и записи, сделанные до появления
+    очередного поля, его просто не знают. Требовать их означало бы ронять карточку на
+    постах, которые прошли конвейер раньше."""
+
+    candidate_id: UUID
+    source_channel_title: str | None = None
+    facts: dict
+    # Сколько стоил этот пост. Считаем запросом к расходам, а не храним в паспорте:
+    # второе место для того же числа рано или поздно разъедется с первым.
+    cost_usd: float
+    cost_by_kind: list[dict]
+
+
+@router.get("/{candidate_id}/passport", response_model=PassportOut)
+async def candidate_passport(
+    candidate_id: UUID, session: AsyncSession = Depends(get_db)
+) -> PassportOut:
+    """«Почему вышел именно такой пост». Отдельным запросом, а не в составе карточки:
+    паспорт открывают по одному и по требованию, а очередь читается сотнями строк."""
+    candidate = await session.get(CandidatePost, candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Пост не найден")
+
+    passport = (
+        await session.execute(
+            select(PostPassport).where(PostPassport.candidate_post_id == candidate_id)
+        )
+    ).scalar_one_or_none()
+
+    source = await session.get(SourceChannel, candidate.source_channel_id)
+    cost, by_kind = await spent_on_entity(session, candidate_id)
+
+    return PassportOut(
+        candidate_id=candidate_id,
+        source_channel_title=source.title if source else None,
+        facts=(passport.data if passport else {}),
+        cost_usd=round(cost, 6),
+        cost_by_kind=[{"title": k.title, "cost_usd": round(k.cost_usd, 6), "calls": k.calls} for k in by_kind],
     )
 
 
@@ -247,9 +329,22 @@ class RejectAllResult(BaseModel):
 
 @router.post("/reject-all", response_model=RejectAllResult)
 async def reject_all(
-    payload: RejectAllPayload, session: AsyncSession = Depends(get_db)
+    payload: RejectAllPayload,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
 ) -> RejectAllResult:
     ids = await reject_all_pending(session, payload.theme_id)
+    # Одна запись на всю очистку, а не по записи на пост: в журнале важно само
+    # решение «стереть очередь», а список постов уже лежит в payload.
+    await record_audit(
+        session,
+        AuditAction.REJECT_ALL,
+        "theme",
+        str(payload.theme_id) if payload.theme_id else "",
+        {"count": len(ids)},
+        actor_admin_username=current.username,
+        theme_id=payload.theme_id,
+    )
     await session.commit()
     return RejectAllResult(count=len(ids), candidate_ids=ids)
 
@@ -263,10 +358,22 @@ class RestoreResult(BaseModel):
 
 
 @router.post("/restore", response_model=RestoreResult)
-async def restore(payload: RestorePayload, session: AsyncSession = Depends(get_db)) -> RestoreResult:
+async def restore(
+    payload: RestorePayload,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
+) -> RestoreResult:
     """Откат массового отклонения — «Отклонить все» стирает очередь одним
     нажатием, и без отмены это была бы самая дорогая ошибка в панели."""
     restored = await restore_rejected(session, payload.candidate_ids)
+    await record_audit(
+        session,
+        AuditAction.RESTORE,
+        "candidate",
+        str(payload.candidate_ids[0]) if payload.candidate_ids else "",
+        {"restored": restored, "requested": len(payload.candidate_ids)},
+        actor_admin_username=current.username,
+    )
     await session.commit()
     return RestoreResult(restored=restored)
 
@@ -277,12 +384,26 @@ class EditTextRequest(BaseModel):
 
 @router.put("/{candidate_id}/text", status_code=204)
 async def edit_text(
-    candidate_id: UUID, payload: EditTextRequest, session: AsyncSession = Depends(get_db)
+    candidate_id: UUID,
+    payload: EditTextRequest,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
 ) -> None:
     try:
         await edit_candidate_text(session, candidate_id, payload.text)
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Текст правки в журнал не кладём — он и так лежит новой версией поста, а
+    # журнал должен оставаться читаемым списком, а не свалкой абзацев.
+    await record_audit(
+        session,
+        AuditAction.EDIT,
+        "candidate",
+        str(candidate_id),
+        {"length": len(payload.text)},
+        actor_admin_username=current.username,
+        theme_id=await _theme_of(session, candidate_id),
+    )
     await session.commit()
 
 
@@ -302,7 +423,11 @@ async def get_candidate_media(
 
 
 @router.post("/{candidate_id}/approve", status_code=204)
-async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -> None:
+async def approve(
+    candidate_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
+) -> None:
     try:
         await approve_candidate(session, candidate_id)
     except AlreadyHandledError as exc:
@@ -311,12 +436,24 @@ async def approve(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await record_audit(session, AuditAction.APPROVE, "candidate", str(candidate_id))
+    await record_audit(
+        session,
+        AuditAction.APPROVE,
+        "candidate",
+        str(candidate_id),
+        {"via": "panel"},
+        actor_admin_username=current.username,
+        theme_id=await _theme_of(session, candidate_id),
+    )
     await session.commit()
 
 
 @router.post("/{candidate_id}/unapprove", status_code=204)
-async def unapprove(candidate_id: UUID, session: AsyncSession = Depends(get_db)) -> None:
+async def unapprove(
+    candidate_id: UUID,
+    session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
+) -> None:
     """Откат одобрения в короткое окно отмены (UX-аудит, №2) — пост
     возвращается в «Проверку». Если планировщик уже забрал его в публикацию,
     сервис вернёт 400 с объяснением."""
@@ -324,6 +461,14 @@ async def unapprove(candidate_id: UUID, session: AsyncSession = Depends(get_db))
         await unapprove_candidate(session, candidate_id)
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await record_audit(
+        session,
+        AuditAction.UNAPPROVE,
+        "candidate",
+        str(candidate_id),
+        actor_admin_username=current.username,
+        theme_id=await _theme_of(session, candidate_id),
+    )
     await session.commit()
 
 
@@ -338,6 +483,7 @@ async def reject(
     candidate_id: UUID,
     payload: RejectPayload | None = None,
     session: AsyncSession = Depends(get_db),
+    current: CurrentAdmin = Depends(get_current_admin),
 ) -> None:
     try:
         await reject_candidate(session, candidate_id, payload.reason if payload else None)
@@ -345,5 +491,13 @@ async def reject(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ReviewError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await record_audit(session, AuditAction.REJECT, "candidate", str(candidate_id))
+    await record_audit(
+        session,
+        AuditAction.REJECT,
+        "candidate",
+        str(candidate_id),
+        {"via": "panel", "reason": payload.reason if payload else None},
+        actor_admin_username=current.username,
+        theme_id=await _theme_of(session, candidate_id),
+    )
     await session.commit()

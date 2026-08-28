@@ -53,6 +53,14 @@ class AdDetectionAction(str, enum.Enum):
 
 
 class AuditAction(str, enum.Enum):
+    """Что записываем в журнал.
+
+    Часть значений заведена изначально и не пишется намеренно: приём постов и шаги
+    конвейера (INGEST, SCORE, DEDUP_MERGE, REWRITE) видны по статусу кандидата, а
+    выход поста — на странице «Публикации». Дублировать это в журнал значило бы
+    утопить в потоке автоматики те несколько строк, ради которых журнал и нужен:
+    кто вошёл, кто что одобрил и кто менял ключи."""
+
     INGEST = "ingest"
     SCORE = "score"
     DEDUP_MERGE = "dedup_merge"
@@ -65,6 +73,13 @@ class AuditAction(str, enum.Enum):
     LOGIN = "login"
     APPROVE = "approve"
     BOT_TOKEN_CHANGE = "bot_token_change"
+    # Действия оператора над очередью — раньше в журнал не попадали вовсе, хотя
+    # именно они меняют то, что выйдет в канал.
+    GENERATE = "generate"
+    EDIT = "edit"
+    UNAPPROVE = "unapprove"
+    REJECT_ALL = "reject_all"
+    RESTORE = "restore"
 
 
 class LlmUsageKind(str, enum.Enum):

@@ -1,8 +1,14 @@
 __pycache__/
 *.pyc
+# .venv без слэша тоже: poetry держит окружение в кэше, и в проекте на него
+# ставят символьную ссылку — шаблон с завершающим слэшем ссылку не ловит.
+.venv
 .venv/
 venv/
 .env
+# Заводится scripts/dev_stack.sh при первом запуске стека.
+.env.dev
+.dev/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/

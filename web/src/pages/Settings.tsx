@@ -4,6 +4,7 @@ import { api, ApiError } from "../api/client";
 import { channelBotsQuery, generalSettingsQuery, meQuery, settingsQuery } from "../api/queries";
 import { Button, Callout, Card, Checkbox, ErrorState, Input, LoadingState, StatusBadge } from "../components/ui";
 import { AutomationForm } from "../components/AutomationForm";
+import { AuditLogCard } from "../components/AuditLogCard";
 import { errorText } from "../lib/errors";
 import type { AdminAccount, ChannelBot, GeneralSettings, SecretSource, SettingsStatus } from "../types";
 
@@ -537,6 +538,8 @@ export function Settings() {
       <AdminBotCard />
 
       <AdminsCard />
+
+      <AuditLogCard />
         </>
       )}
     </div>

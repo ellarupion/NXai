@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from interfaces.api.routers.admins import router as admins_router
 from interfaces.api.routers.alerts import router as alerts_router
+from interfaces.api.routers.audit_logs import router as audit_logs_router
 from interfaces.api.routers.auth import router as auth_router
 from interfaces.api.routers.candidates import router as candidates_router
 from interfaces.api.routers.channel_bots import router as channel_bots_router
@@ -29,6 +30,7 @@ router.include_router(target_channels_router)
 router.include_router(channel_bots_router)
 router.include_router(settings_router)
 router.include_router(llm_usage_router)
+router.include_router(audit_logs_router)
 router.include_router(settings_general_router)
 router.include_router(settings_automation_router)
 router.include_router(telethon_sessions_router)

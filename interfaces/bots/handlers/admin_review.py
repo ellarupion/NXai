@@ -12,10 +12,15 @@ from uuid import UUID
 from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import get_session_factory
 from core.logging import get_logger
-from core.models.enums import BotRole
+from core.models.candidate_post import CandidatePost
+from core.models.enums import AuditAction, BotRole
+from core.models.source_channel import SourceChannel
+from core.services.audit import record_audit
 from core.services.tg_format import escape, to_telegram_html
 from core.services.review import (
     ReviewError,
@@ -71,6 +76,7 @@ async def on_approve(callback: CallbackQuery, bot_role: BotRole) -> None:
     async with session_factory() as session:
         try:
             await approve_candidate(session, candidate_id)
+            await _audit(session, AuditAction.APPROVE, candidate_id, callback.from_user.id)
             await session.commit()
         except ReviewError as exc:
             await callback.answer(str(exc), show_alert=True)
@@ -87,6 +93,7 @@ async def on_reject(callback: CallbackQuery, bot_role: BotRole) -> None:
     async with session_factory() as session:
         try:
             await reject_candidate(session, candidate_id)
+            await _audit(session, AuditAction.REJECT, candidate_id, callback.from_user.id)
             await session.commit()
         except ReviewError as exc:
             await callback.answer(str(exc), show_alert=True)
@@ -114,7 +121,14 @@ async def on_edit_text(message: Message, bot_role: BotRole) -> None:
     session_factory = get_session_factory()
     async with session_factory() as session:
         try:
-            await edit_candidate_text(session, candidate_id, message.text)
+            await edit_candidate_text(session, candidate_id, message.text, via="bot")
+            await _audit(
+                session,
+                AuditAction.EDIT,
+                candidate_id,
+                message.from_user.id,
+                {"length": len(message.text)},
+            )
             await session.commit()
         except ReviewError as exc:
             await message.answer(f"Не удалось сохранить: {exc}")
@@ -122,6 +136,31 @@ async def on_edit_text(message: Message, bot_role: BotRole) -> None:
     await message.answer(
         "Текст обновлён. Одобрить обновлённый пост?",
         reply_markup=build_review_keyboard(candidate_id),
+    )
+
+
+async def _audit(
+    session: AsyncSession,
+    action: AuditAction,
+    candidate_id: UUID,
+    tg_user_id: int,
+    payload: dict | None = None,
+) -> None:
+    """Автор — telegram-id: логина у нажавшего кнопку в боте нет, и подставить
+    сюда чей-то логин значило бы приписать действие не тому человеку."""
+    theme_id = await session.scalar(
+        select(SourceChannel.theme_id)
+        .join(CandidatePost, CandidatePost.source_channel_id == SourceChannel.id)
+        .where(CandidatePost.id == candidate_id)
+    )
+    await record_audit(
+        session,
+        action,
+        "candidate",
+        str(candidate_id),
+        {**(payload or {}), "via": "bot"},
+        actor_tg_user_id=tg_user_id,
+        theme_id=theme_id,
     )
 
 

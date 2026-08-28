@@ -24,7 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import get_session_factory
 from core.logging import get_logger
 from core.models.channel_bot import ChannelBot
-from core.models.enums import BotRole
+from core.models.enums import AuditAction, BotRole
+from core.services.audit import record_audit
 from core.services.persona_learning import remember_good_example
 from core.services.tg_format import escape, to_telegram_html
 from core.services.review import (
@@ -109,6 +110,7 @@ async def on_approve(callback: CallbackQuery, bot_role: BotRole, theme_id) -> No
             return
         try:
             await approve_candidate(session, candidate_id)
+            await _audit(session, AuditAction.APPROVE, candidate_id, callback.from_user.id, theme_id)
             await session.commit()
         except ReviewError as exc:
             await callback.answer(str(exc), show_alert=True)
@@ -128,6 +130,7 @@ async def on_reject(callback: CallbackQuery, bot_role: BotRole, theme_id) -> Non
             return
         try:
             await reject_candidate(session, candidate_id)
+            await _audit(session, AuditAction.REJECT, candidate_id, callback.from_user.id, theme_id)
             await session.commit()
         except ReviewError as exc:
             await callback.answer(str(exc), show_alert=True)
@@ -167,8 +170,16 @@ async def on_fix_text(message: Message, bot_role: BotRole, theme_id) -> None:
         if not await _editor_allowed(session, theme_id, message.from_user.id):
             return
         try:
-            await edit_candidate_text(session, candidate_id, message.text)
+            await edit_candidate_text(session, candidate_id, message.text, via="bot")
             await remember_good_example(session, theme_id, message.text)
+            await _audit(
+                session,
+                AuditAction.EDIT,
+                candidate_id,
+                message.from_user.id,
+                theme_id,
+                {"length": len(message.text)},
+            )
             await session.commit()
         except ReviewError as exc:
             await message.answer(f"Не удалось сохранить: {exc}")
@@ -176,6 +187,27 @@ async def on_fix_text(message: Message, bot_role: BotRole, theme_id) -> None:
     await message.answer(
         "Сохранил и запомнил правку как образец стиля. Одобрить пост в таком виде?",
         reply_markup=build_editor_keyboard(candidate_id),
+    )
+
+
+async def _audit(
+    session: AsyncSession,
+    action: AuditAction,
+    candidate_id: UUID,
+    tg_user_id: int,
+    theme_id: UUID | None,
+    payload: dict | None = None,
+) -> None:
+    """Автор — telegram-id редактора: логина в панели у него может не быть вовсе,
+    к боту темы допуск отдельный (EditorAllowlist)."""
+    await record_audit(
+        session,
+        action,
+        "candidate",
+        str(candidate_id),
+        {**(payload or {}), "via": "bot"},
+        actor_tg_user_id=tg_user_id,
+        theme_id=theme_id,
     )
 
 

@@ -281,6 +281,8 @@ export interface PublicationItem {
   kind: "candidate" | "pool";
   is_ad_cover: boolean;
   text: string;
+  /* Для паспорта поста. null у постов из собственного запаса — кандидата у них нет. */
+  candidate_id: string | null;
   source_channel_id: string | null;
   source_channel_title: string | null;
   source_channel_username: string | null;
@@ -369,4 +371,59 @@ export interface AutomationSettings {
   min_rewritable_length: number;
   rubric_recent_window: number;
   ad_cover_delay_minutes: number;
+}
+
+/* Журнал действий (страница «Настройки», только суперадмину). Автор — либо
+   логин в панели, либо telegram-id нажавшего кнопку в боте; оба пустые
+   означают действие системы, а не человека. */
+export interface AuditLogItem {
+  id: string;
+  created_at: string;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  actor_admin_username: string | null;
+  actor_tg_user_id: number | null;
+  actor_ip: string | null;
+  theme_id: string | null;
+  theme_name: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface AuditLogsPage {
+  items: AuditLogItem[];
+  has_more: boolean;
+}
+
+/* Паспорт поста — «почему вышел именно такой». Поля внутри facts
+   необязательные: паспорт лежит в JSON, и посты, прошедшие конвейер до
+   появления очередного факта, его просто не знают. */
+export interface PostPassportFacts {
+  origin?: "auto" | "manual" | "batch";
+  score?: number | null;
+  threshold?: number | null;
+  forwards?: number | null;
+  median_forwards?: number | null;
+  trust_score?: number | null;
+  model?: string;
+  persona?: string;
+  source_length?: number;
+  result_length?: number;
+  variant_no?: number;
+  source_similarity?: number | null;
+  rubric?: string | null;
+  rubric_decided_by?: "raw" | "rewritten";
+  edited_via?: "panel" | "bot";
+  edit_length_before?: number;
+  edit_length_after?: number;
+  published_to?: string[];
+  published_with_photo?: boolean;
+}
+
+export interface PostPassport {
+  candidate_id: string;
+  source_channel_title: string | null;
+  facts: PostPassportFacts;
+  cost_usd: number;
+  cost_by_kind: { title: string; cost_usd: number; calls: number }[];
 }

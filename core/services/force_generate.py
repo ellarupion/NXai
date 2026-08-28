@@ -30,6 +30,7 @@ from core.models.theme import Theme
 from core.services.backfill import backfill_source_channel
 from core.services.automation import get_automation
 from core.services.dedup import DedupService
+from core.services.post_passport import merge_passport, rubric_facts, selection_facts
 from core.services.persona import build_persona_prompt
 from core.services import rubrics
 from core.services.content_filter import AUTO_REASON_AD
@@ -147,7 +148,10 @@ class ForceGenerateService:
                 if duplicate_of is not None:
                     duplicates_found += 1
                     continue
-                post_version = await rewrite.generate(candidate.id, persona_prompt)
+                post_version = await rewrite.generate(
+                    candidate.id, persona_prompt,
+                    origin="batch" if batch_date is not None else "manual",
+                )
             except RewriteError as exc:
                 # Не системный сбой, а свойство самого поста (нет текста, одна
                 # реклама). Возвращать его в NEW нельзя — он бы всплывал на
@@ -174,6 +178,13 @@ class ForceGenerateService:
                 last_error = str(exc)
                 continue
 
+            # Ручной отбор порога не применял вовсе — так и записываем, иначе панель
+            # нарисует «прошёл порог», которого никто не применял.
+            await merge_passport(self.session, candidate.id, selection_facts(
+                origin="batch" if batch_date is not None else "manual",
+                score=candidate.score,
+                threshold=None,
+            ))
             candidate.status = CandidatePostStatus.PENDING_REVIEW
             # Метка партии: по ней считается долг темы. Ставится только для
             # «Постов на сегодня» — посты по кнопке точного количества к заказу
@@ -264,6 +275,10 @@ class ForceGenerateService:
             if candidate.rubric is None:
                 candidate.rubric = await rubrics.classify(
                     self.session, theme_id, candidate.raw_text, llm=self.llm
+                )
+                await merge_passport(
+                    self.session, candidate.id,
+                    rubric_facts(rubric=candidate.rubric, decided_by="raw"),
                 )
 
         return _round_robin_by_rubric(pool, count)

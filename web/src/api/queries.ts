@@ -1,6 +1,7 @@
 import { api } from "./client";
 import type {
   Alert,
+  AuditLogsPage,
   AutomationSettings,
   ChannelBot,
   DashboardStats,
@@ -11,6 +12,7 @@ import type {
   Onboarding,
   PendingReviewPost,
   PoolPost,
+  PostPassport,
   PublicationsPage,
   SettingsStatus,
   SourceChannel,
@@ -141,4 +143,26 @@ export const llmUsageQuery = (days: number) => ({
 export const automationQuery = () => ({
   queryKey: ["automation"],
   queryFn: () => api.get<AutomationSettings>("/settings/automation"),
+});
+
+export const auditLogsQuery = (params: {
+  action?: string;
+  themeId?: string;
+  actor?: string;
+  limit?: number;
+}) => {
+  const q = new URLSearchParams();
+  if (params.action) q.set("action", params.action);
+  if (params.themeId) q.set("theme_id", params.themeId);
+  if (params.actor) q.set("actor", params.actor);
+  q.set("limit", String(params.limit ?? 50));
+  return {
+    queryKey: ["audit-logs", params],
+    queryFn: () => api.get<AuditLogsPage>(`/audit-logs?${q.toString()}`),
+  };
+};
+
+export const postPassportQuery = (candidateId: string) => ({
+  queryKey: ["post-passport", candidateId],
+  queryFn: () => api.get<PostPassport>(`/candidates/${candidateId}/passport`),
 });

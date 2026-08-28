@@ -12,6 +12,7 @@ import {
   Select,
   TextAction,
 } from "../components/ui";
+import { PostPassportCard } from "../components/PostPassportCard";
 import { formatMoment, useProjectTz } from "../lib/datetime";
 import { errorText } from "../lib/errors";
 import { plural } from "../lib/plural";
@@ -59,6 +60,7 @@ function PublicationCard({ pub, tz }: { pub: PublicationItem; tz: string }) {
   const queryClient = useQueryClient();
   const [showOrigin, setShowOrigin] = useState(false);
   const [showPersona, setShowPersona] = useState(false);
+  const [showPassport, setShowPassport] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,6 +165,12 @@ function PublicationCard({ pub, tz }: { pub: PublicationItem; tz: string }) {
             {showPersona ? "Скрыть персону" : "Чем переписан"}
           </TextAction>
         )}
+        {/* У постов из собственного запаса кандидата нет — разбирать нечего. */}
+        {pub.candidate_id && (
+          <TextAction onClick={() => setShowPassport((v) => !v)}>
+            {showPassport ? "Скрыть разбор" : "Почему такой пост"}
+          </TextAction>
+        )}
         <TextAction
           disabled={busy}
           onClick={() => learn.mutate()}
@@ -207,6 +215,8 @@ function PublicationCard({ pub, tz }: { pub: PublicationItem; tz: string }) {
           </p>
         </div>
       )}
+
+      {showPassport && pub.candidate_id && <PostPassportCard candidateId={pub.candidate_id} />}
 
       {note && <p className="text-xs text-good">{note}</p>}
       {error && <p className="text-xs text-bad">{error}</p>}

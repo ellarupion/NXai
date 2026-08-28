@@ -19,6 +19,7 @@ from core.models.post_version import PostVersion
 from core.models.source_channel import SourceChannel
 from core.services.content_filter import is_too_short_to_rewrite
 from core.services.llm_usage import UsageRecord, record_usage
+from core.services.post_passport import merge_passport, persona_summary, rewrite_facts
 from core.services.trust_score import TrustEvent, adjust_trust_score
 
 logger = get_logger(__name__)
@@ -56,7 +57,9 @@ class RewriteService:
         # (см. core/services/llm_usage.py:UsageRecord).
         self.last_usage: UsageRecord | None = None
 
-    async def generate(self, candidate_id: UUID, persona_prompt: str) -> PostVersion:
+    async def generate(
+        self, candidate_id: UUID, persona_prompt: str, origin: str | None = None
+    ) -> PostVersion:
         candidate = await self.session.get(CandidatePost, candidate_id)
         if candidate is None:
             raise ValueError(f"CandidatePost {candidate_id} not found")
@@ -133,6 +136,19 @@ class RewriteService:
         # через этот метод, а затем сам переводит статус в PENDING_REVIEW —
         # дублировать бонус в core/services/review.py:approve_candidate не нужно).
         await adjust_trust_score(self.session, candidate.source_channel_id, TrustEvent.SUCCESS)
+
+        await merge_passport(self.session, candidate_id, rewrite_facts(
+            model=REWRITE_MODEL,
+            persona_summary=persona_summary(persona_prompt),
+            source_length=len(candidate.raw_text or ""),
+            result_length=len(result.text),
+            variant_no=variant_no,
+            source_similarity=source_similarity,
+        ))
+        # origin переопределяет засев отбора: пост, заказанный оператором, порога не
+        # проходил вовсе, и написать туда действующий порог значило бы соврать.
+        if origin is not None:
+            await merge_passport(self.session, candidate_id, {"origin": origin})
 
         logger.info(
             "rewrite.generated",

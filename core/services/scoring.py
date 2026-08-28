@@ -23,6 +23,7 @@ from core.logging import get_logger
 from core.models.candidate_post import CandidatePost
 from core.models.enums import CandidatePostStatus
 from core.services.automation import AutomationSettings, get_automation
+from core.services.post_passport import merge_passport, selection_facts
 from core.models.metrics_snapshot import CandidateMetricsSnapshot
 from core.models.source_channel import SourceChannel
 from core.statistics.client import PostStats
@@ -122,6 +123,21 @@ class ScoringService:
 
         candidate.status = CandidatePostStatus.SELECTED
         await self.session.flush()
+
+        # Засев паспорта: медиану канала и доверие источнику после этого момента
+        # восстановить нечем — они пересчитываются на каждом тике, и через день
+        # ответ «почему этот пост прошёл» был бы уже другим числом.
+        source = await self.session.get(SourceChannel, candidate.source_channel_id)
+        await merge_passport(self.session, candidate_id, selection_facts(
+            origin="auto",
+            score=candidate.score,
+            threshold=threshold,
+            median_forwards=await self._channel_median_forwards(
+                candidate.source_channel_id, since_days=7
+            ),
+            trust_score=source.trust_score if source else None,
+        ))
+
         logger.info("scoring.selected", candidate_id=str(candidate_id), score=candidate.score)
         return True
 

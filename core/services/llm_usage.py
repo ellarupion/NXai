@@ -223,3 +223,39 @@ async def summary_by_model(session: AsyncSession, days: int) -> list[tuple[str, 
         )
     ).all()
     return [(model_title(model), float(cost or 0.0)) for model, cost in rows]
+
+
+async def spent_on_entity(session: AsyncSession, entity_id: UUID) -> tuple[float, list[KindTotal]]:
+    """Сколько стоил один конкретный пост и на что именно.
+
+    Считаем запросом, а не храним рядом с постом: расход уже подписан идентификатором
+    кандидата в момент вызова модели, и второе место для того же числа рано или поздно
+    разъедется с первым."""
+    rows = (
+        await session.execute(
+            select(
+                LlmUsage.kind,
+                func.sum(LlmUsage.cost_usd),
+                func.count(),
+                func.sum(LlmUsage.input_tokens),
+                func.sum(LlmUsage.output_tokens),
+                func.sum(LlmUsage.cache_read_tokens),
+            )
+            .where(LlmUsage.entity_id == entity_id)
+            .group_by(LlmUsage.kind)
+            .order_by(func.sum(LlmUsage.cost_usd).desc())
+        )
+    ).all()
+    totals = [
+        KindTotal(
+            kind=kind.value,
+            title=KIND_TITLES.get(kind, kind.value),
+            cost_usd=float(cost or 0.0),
+            calls=int(calls or 0),
+            input_tokens=int(inp or 0),
+            output_tokens=int(out or 0),
+            cache_read_tokens=int(cached or 0),
+        )
+        for kind, cost, calls, inp, out, cached in rows
+    ]
+    return sum(t.cost_usd for t in totals), totals

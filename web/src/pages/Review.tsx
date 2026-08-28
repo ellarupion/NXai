@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "../api/client";
 import { pendingReviewCountsQuery, pendingReviewQuery, themesQuery } from "../api/queries";
 import { Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, TextAction, Textarea } from "../components/ui";
+import { PostPassportCard } from "../components/PostPassportCard";
 import { errorText } from "../lib/errors";
 import { plural } from "../lib/plural";
 import type { DailyBatch, GeneratedPost, PendingReviewPost } from "../types";
@@ -164,6 +165,7 @@ function PendingReviewCard({
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [showPassport, setShowPassport] = useState(false);
   const [choosingReason, setChoosingReason] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(post.rewritten_text);
@@ -291,6 +293,12 @@ function PendingReviewCard({
             <TextAction onClick={() => setShowRaw((v) => !v)}>
               {showRaw ? "Скрыть оригинал" : "Показать оригинал"}
             </TextAction>
+            {/* Паспорт грузится только по нажатию: очередь — это десятки карточек,
+                и тянуть разбор для каждой заранее значило бы десятки запросов ради
+                одного, который откроют. */}
+            <TextAction onClick={() => setShowPassport((v) => !v)}>
+              {showPassport ? "Скрыть разбор" : "Почему такой пост"}
+            </TextAction>
             <TextAction
               onClick={() => {
                 setDraft(post.rewritten_text);
@@ -305,6 +313,7 @@ function PendingReviewCard({
               {post.raw_text}
             </p>
           )}
+          {showPassport && <PostPassportCard candidateId={post.candidate_id} />}
 
           {choosingReason ? (
             <div className="flex flex-col gap-2">
