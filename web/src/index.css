@@ -1,197 +1,269 @@
 @import "tailwindcss";
 
-/* NXai Control Room — собственный визуальный язык панели, намеренно разведён с
-   референсным NX: тёмная-первичная тема (графит) + кислотно-лаймовый акцент
-   вместо телеграмного teal, боковая навигация вместо верхнего навбара и другая
-   типографика. Шрифты самостоятельно захостены в public/fonts (Google Fonts по
-   сети недоступен/медленный в РФ — основная аудитория). С кириллическим
-   unicode-range у всех начертаний.
-     - Unbounded (700/800) — логотип и крупные заголовки, «фирменный» голос.
-     - Manrope (400/500/600) — весь текст интерфейса.
-     - JetBrains Mono (400/500) — цифры метрик/бейджей, «пультовый» вид. */
+/* Оформление панели перенесено из NX (решение владельца: «дизайн NX возьмём за основу,
+   он понятнее»). Прежний вид NXai — «control room»: тёмная-первичная тема с
+   кислотно-лаймовым акцентом. Он был выразительнее, но хуже читался: тонкий текст на
+   графите, две темы вместо трёх и ни одной кнопки, чтобы тему выбрать руками.
+   Здесь молочно-бирюзовая палитра NX, три режима темы и её приёмы для телефона.
 
-/* --- Manrope (UI-текст) --- */
+   IBM Plex Sans/Mono — кириллица+латиница, самостоятельно захостены в public/fonts
+   (Google Fonts бывает недоступен и медленный в РФ, а это основная аудитория панели).
+   Newsreader из NX не перенесён: кириллицы у него нет вовсе, в NX он стоит только в
+   логотипе, а здесь заголовки набираются тем же Plex Sans в 600. */
+
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/manrope-cyrillic-400-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-400-normal-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/manrope-latin-400-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-400-normal-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/manrope-cyrillic-500-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-500-normal-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/manrope-latin-500-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-500-normal-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("/fonts/manrope-cyrillic-600-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-600-normal-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
-  font-family: "Manrope";
+  font-family: "IBM Plex Sans";
   font-style: normal;
   font-weight: 600;
   font-display: swap;
-  src: url("/fonts/manrope-latin-600-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
-}
-
-/* --- Unbounded (логотип/дисплейные заголовки) --- */
-@font-face {
-  font-family: "Unbounded";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/unbounded-cyrillic-700-normal.woff2") format("woff2");
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-@font-face {
-  font-family: "Unbounded";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/unbounded-latin-700-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-sans-600-normal-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 @font-face {
-  font-family: "Unbounded";
-  font-style: normal;
-  font-weight: 800;
-  font-display: swap;
-  src: url("/fonts/unbounded-cyrillic-800-normal.woff2") format("woff2");
-  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
-}
-@font-face {
-  font-family: "Unbounded";
-  font-style: normal;
-  font-weight: 800;
-  font-display: swap;
-  src: url("/fonts/unbounded-latin-800-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
-}
-
-/* --- JetBrains Mono (цифры/метрики) --- */
-@font-face {
-  font-family: "JetBrains Mono";
+  font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-cyrillic-400-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-mono-400-normal-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-mono-400-normal-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-cyrillic-500-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-mono-500-normal-cyrillic.woff2") format("woff2");
   unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
 }
 @font-face {
-  font-family: "JetBrains Mono";
+  font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url("/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+  src: url("/fonts/ibm-plex-mono-500-normal-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+2000-206F, U+2122;
 }
 
-/* Токены. По умолчанию (:root) — ТЁМНАЯ тема (dark-first, в отличие от NX, где
-   базовая светлая). Светлая — вторична, под prefers-color-scheme: light. */
+/* Значки интерфейса: открытый цветной набор Noto подмножеством в 65 КБ. На Windows
+   системные смайлики плоские и выглядят инородно рядом с остальным оформлением.
+   На технике Apple файл даже не скачивается — в стеке шрифтов ниже Apple Color Emoji
+   стоит раньше, а браузер подбирает шрифт посимвольно. */
+@font-face {
+  font-family: "NX Emoji";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/nx-emoji.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------------------
+   Тема. Три режима, а не два: «как на устройстве», светлая и тёмная руками
+   (src/theme/ThemeContext.tsx). Отсюда устройство блоков ниже:
+
+     :root                                        — светлая, полный набор;
+     @media (dark) :root:not([data-theme=light])  — системная тёмная, но только если
+                                                    светлую не выбрали руками;
+     :root[data-theme="dark"]                     — тёмная, выбранная руками.
+
+   Блока [data-theme="light"] нет намеренно: светлая уже лежит в :root, а медиа-запрос
+   исключён условием :not(). Так палитра светлой темы описана один раз, а не дважды.
+   Тёмная всё-таки повторяется: объединить два селектора в один список нельзя, пока
+   один из них живёт внутри @media.
+   --------------------------------------------------------------------------- */
+
 :root {
-  --bg: #0c0f14;
-  --surface: #141922;
-  --surface-2: #1c232e;
-  --border: #2a3340;
-  --ink: #e6edf3;
-  --ink-muted: #8b97a5;
-  --accent: #bef522;
-  --accent-strong: #cffa4d;
-  --accent-soft: #1e2a10;
-  --accent-ink: #0c0f14;
-  --good: #4ade80;
-  --good-soft: #12301f;
-  --bad: #f76d6d;
-  --bad-soft: #33191a;
-  /* Мягкое лаймовое свечение — «control room»-акцент вокруг активных элементов. */
-  --glow: 0 0 0 1px rgba(190, 245, 34, 0.35), 0 0 18px rgba(190, 245, 34, 0.12);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  /* color-scheme — не дубль токенов, а единственный способ сказать браузеру, в какой
+     теме рисовать СВОИ элементы: календарь внутри поля «дата и время», колесо выбора
+     времени на iOS, полосы прокрутки. Без него Safari рисует их всегда по-светлому, и
+     в тёмной теме поле с датой выглядит пустым — тёмные цифры на тёмной подложке. */
+  color-scheme: light;
+  --bg: #f9f8f3;
+  --surface: #fffefa;
+  --surface-2: #efede4;
+  --border: #dfdbcf;
+  --border-soft: #ebe8df;
+  --ink: #2c2e31;
+  --ink-muted: #63656a;
+  --ink-faint: #74746e;
+  --accent: #1f6e77;
+  --accent-strong: #175a62;
+  --accent-soft: #e2edeb;
+  --accent-ink: #fffefa;
+  --good: #3b7757;
+  --good-soft: #e7eee5;
+  --warn: #89641a;
+  --warn-soft: #f5edd9;
+  --bad: #b54743;
+  --bad-soft: #f7e7e2;
+  --info: #43628f;
+  --info-soft: #e8eaf1;
+  /* Чужая реклама в своём канале, перекрытая нашим постом
+     (core/services/ad_watchdog.py) — состояние не из светофора конвейера
+     («работает / требует взгляда / встало»), а другого рода: пост в канале есть,
+     но он не наш. Поэтому свой цвет, а не оттенок существующих. */
+  --foreign: #75589f;
+  --foreign-soft: #ede8f3;
+  --shadow: 0 1px 2px rgba(44, 46, 49, 0.05), 0 4px 14px rgba(44, 46, 49, 0.05);
+  /* «Стекло» нижней панели телефона. Читается тремя вещами сразу: подложка светлее
+     фона и сильно прозрачная (сквозь неё видно содержимое), по верхнему краю светлый
+     блик, как на срезе стекла, и заметная тень, отрывающая панель от страницы.
+     Ни одна из трёх сама по себе стекла не даёт. */
+  --glass-bg: rgba(255, 254, 250, 0.6);
+  --glass-border: rgba(44, 46, 49, 0.11);
+  --glass-edge: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 2px 6px rgba(44, 46, 49, 0.08), 0 10px 30px rgba(44, 46, 49, 0.16);
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f4f6f2;
-    --surface: #ffffff;
-    --surface-2: #eef1ea;
-    --border: #dfe3d9;
-    --ink: #1b2129;
-    --ink-muted: #5c6773;
-    --accent: #7cbb00;
-    --accent-strong: #6aa300;
-    --accent-soft: #eef7d6;
-    --accent-ink: #101510;
-    --good: #2f9e5f;
-    --good-soft: #e5f5ea;
-    --bad: #d15b5b;
-    --bad-soft: #fbeaea;
-    --glow: 0 0 0 1px rgba(124, 187, 0, 0.4);
-    --shadow: 0 1px 2px rgba(27, 33, 41, 0.05), 0 6px 18px rgba(27, 33, 41, 0.06);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1c1c1c;
+    --surface: #2b2b2b;
+    --surface-2: #373737;
+    --border: #3a3a3a;
+    --border-soft: #353535;
+    --ink: #e7e5e0;
+    --ink-muted: #a1a1a1;
+    --ink-faint: #909090;
+    --accent: #57b4be;
+    --accent-strong: #74cbd3;
+    --accent-soft: #16333a;
+    --accent-ink: #0c1a1e;
+    --good: #5cbd8b;
+    --good-soft: #193227;
+    --warn: #d3a552;
+    --warn-soft: #372f1c;
+    --bad: #d97575;
+    --bad-soft: #3a2429;
+    --info: #8aa5df;
+    --info-soft: #1e2740;
+    --foreign: #ae8cdd;
+    --foreign-soft: #272240;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 18px rgba(0, 0, 0, 0.26);
+    /* Тёмное стекло — подложка СВЕТЛЕЕ фона, а не темнее: тёмное на тёмном читается
+       как дырка, а поднятое стекло ловит свет. Блик слабее (0.12 против 0.85), иначе
+       выглядит нарисованной белой полоской; тень, наоборот, глубже — на тёмном фоне
+       мягкая тень не видна вовсе. */
+    --glass-bg: rgba(64, 64, 64, 0.52);
+    --glass-border: rgba(255, 255, 255, 0.16);
+    --glass-edge: rgba(255, 255, 255, 0.12);
+    --glass-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.55);
   }
 }
 
-/* Tailwind v4 CSS-first theming: bg-accent/text-ink-muted/border-border и т.п.
-   читают CSS-переменную в момент рендера. Добавлены семейства display/mono. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1c1c;
+  --surface: #2b2b2b;
+  --surface-2: #373737;
+  --border: #3a3a3a;
+  --border-soft: #353535;
+  --ink: #e7e5e0;
+  --ink-muted: #a1a1a1;
+  --ink-faint: #909090;
+  --accent: #57b4be;
+  --accent-strong: #74cbd3;
+  --accent-soft: #16333a;
+  --accent-ink: #0c1a1e;
+  --good: #5cbd8b;
+  --good-soft: #193227;
+  --warn: #d3a552;
+  --warn-soft: #372f1c;
+  --bad: #d97575;
+  --bad-soft: #3a2429;
+  --info: #8aa5df;
+  --info-soft: #1e2740;
+  --foreign: #ae8cdd;
+  --foreign-soft: #272240;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 6px 18px rgba(0, 0, 0, 0.26);
+  --glass-bg: rgba(64, 64, 64, 0.52);
+  --glass-border: rgba(255, 255, 255, 0.16);
+  --glass-edge: rgba(255, 255, 255, 0.12);
+  --glass-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* @theme inline — Tailwind v4 генерирует bg-accent / text-ink-muted / border-border
+   как обычные утилиты, но их значение читается из CSS-переменной в момент рендера, а
+   не запекается на этапе сборки. Поэтому смена data-theme на <html> перекрашивает всё
+   разом, без dark:-дублей на каждом классе по всему приложению. */
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-border: var(--border);
+  --color-border-soft: var(--border-soft);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
   --color-good: var(--good);
   --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
   --color-bad: var(--bad);
   --color-bad-soft: var(--bad-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-foreign: var(--foreign);
+  --color-foreign-soft: var(--foreign-soft);
 
-  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Unbounded", "Manrope", ui-sans-serif, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  /* Apple Color Emoji раньше нашего набора: на маке и айфоне значки остаются родными,
+     на Windows подхватывается открытый Noto. */
+  --font-sans: "IBM Plex Sans", "Apple Color Emoji", "NX Emoji", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: "IBM Plex Mono", "Apple Color Emoji", "NX Emoji", ui-monospace,
+    "SFMono-Regular", monospace;
 }
 
 * {
@@ -204,6 +276,10 @@ body,
   height: 100%;
 }
 
+/* Страница никогда не должна расползаться по горизонтали. Особенно на iOS Safari:
+   любой вылезший за экран элемент заставляет браузер отдалить масштаб «чтобы всё
+   влезло», и вся вёрстка выглядит уехавшей вбок и мелкой. clip, а не hidden, где
+   поддерживается: hidden превращает body в скролл-контейнер, clip просто отрезает. */
 html,
 body {
   overflow-x: hidden;
@@ -216,6 +292,9 @@ body {
   }
 }
 
+/* iOS Safari зумит страницу при фокусе на поле с font-size меньше 16px, и вернуть
+   масштаб можно только двумя пальцами. Сами поля держат 14px ради плотности на
+   компьютере, поэтому размер поднимаем только под мобильным брейкпоинтом. */
 @media (max-width: 767px) {
   input,
   select,
@@ -231,8 +310,30 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Панель, открытая с домашнего экрана iOS, рисуется во весь экран — без этого отступа
+   шапка уезжает под статус-бар и «чёлку». В обычной вкладке env(safe-area-inset-top)
+   равен нулю, поэтому правило там ничего не меняет. Работает в паре с
+   viewport-fit=cover в index.html.
+
+   Класс, а не селектор по тегу header: такое правило живёт вне слоёв Tailwind и потому
+   побеждает утилиты — иначе py-3 на любом другом <header> молча терял бы верхнюю
+   половину отступа. */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Тот же приём снизу: на iPhone внизу экрана живёт полоса жеста «домой», и элемент,
+   прижатый к самому краю, попадает под неё. */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Заголовки. В NX для них есть Newsreader, но кириллицы у него нет вовсе, поэтому
+   здесь тот же Plex Sans потолще: иначе русские заголовки уехали бы в системный
+   запасной шрифт и разъехались с остальным интерфейсом. */
 .font-display {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
+  font-weight: 600;
   letter-spacing: -0.01em;
 }
 
@@ -240,12 +341,49 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Появление содержимого страницы: 160 миллисекунд подъёма на четыре пикселя с
+   проявлением — достаточно, чтобы переход читался как движение, и мало, чтобы
+   ощущаться задержкой. Правило prefers-reduced-motion ниже гасит анимацию у тех,
+   кто отключил её в системе. */
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.appear {
+  animation: appear 0.16s ease-out both;
+}
+
 .shadow-token {
   box-shadow: var(--shadow);
 }
 
-.glow-accent {
-  box-shadow: var(--glow);
+/* Одним классом, а не набором утилит в разметке: у стекла четыре согласованных
+   значения на тему, и держать их в className значило бы прописывать цвета мимо
+   палитры. */
+.glass {
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    var(--glass-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+
+/* Без размытия прозрачная подложка превращается в мутное окно, сквозь которое читается
+   текст страницы, — тогда честнее непрозрачная карточка. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background-color: var(--surface);
+    border-color: var(--border);
+  }
 }
 
 ::selection {
@@ -255,4 +393,13 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+  }
 }

@@ -2,10 +2,30 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="theme-color" content="#0c0f14" />
+    <!-- Цвет строки браузера — под текущую тему панели, значения из index.css. -->
+    <meta name="theme-color" content="#f9f8f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c1c1c" media="(prefers-color-scheme: dark)" />
+    <!-- viewport-fit=cover нужен, чтобы env(safe-area-inset-*) перестал быть нулём:
+         открытая с домашнего экрана панель рисуется во весь экран, и без отступа
+         шапка уезжает под «чёлку», а нижняя панель попадает под полосу жеста
+         (отступы заданы в index.css). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>NXai</title>
+    <script>
+      // Ставим data-theme ещё до первой отрисовки — иначе страница на долю секунды
+      // мигает системной темой перед тем, как React применит сохранённый выбор.
+      // Ключ и разбор те же, что в src/theme/ThemeContext.tsx: отсутствие значения
+      // означает «как на устройстве», и тогда атрибут не ставится вовсе.
+      (function () {
+        try {
+          var stored = localStorage.getItem("nxai_theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

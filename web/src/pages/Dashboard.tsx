@@ -8,7 +8,7 @@ import {
   themesQuery,
   trendsQuery,
 } from "../api/queries";
-import { Card, ErrorState, LoadingState, StatTile } from "../components/ui";
+import { Card, ErrorState, LoadingState, PageSkeleton, StatTile } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { Sparkline } from "../components/Sparkline";
 import { formatMoment, useProjectTz } from "../lib/datetime";
@@ -398,7 +398,7 @@ function WorkersList({ workers }: { workers: WorkerStatus[] }) {
 export function Dashboard() {
   const { data, isLoading, error, refetch } = useQuery(dashboardStatsQuery());
 
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <PageSkeleton />;
   if (error) return <ErrorState message={errorText(error)} onRetry={() => refetch()} />;
   if (!data) return null;
 

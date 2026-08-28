@@ -8,7 +8,7 @@ import {
   telethonSessionsQuery,
   themesQuery,
 } from "../api/queries";
-import { Button, Card, ErrorState, Input, LoadingState, Select, Textarea } from "../components/ui";
+import { Button, Card, ErrorState, Input, LoadingState, PageSkeleton, Select, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { LoginWizard } from "./TelethonSessions";
 import type { ChannelBot, SourceChannel, TargetChannel, Theme } from "../types";
@@ -442,7 +442,7 @@ export function Setup() {
   // переключает на конкретный шаг, например вернуться и добавить ещё источник.
   const [manualStep, setManualStep] = useState<StepKey | null>(null);
 
-  if (isLoading) return <LoadingState />;
+  if (isLoading) return <PageSkeleton />;
   if (error) return <ErrorState message={errorText(error)} onRetry={() => refetch()} />;
   if (!data) return null;
 

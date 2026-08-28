@@ -12,7 +12,7 @@ import {
   themeQuery,
   themesQuery,
 } from "../api/queries";
-import { Button, Callout, Card, Checkbox, EmptyState, ErrorState, Input, LoadingState, Select, StatusBadge, TextAction, Textarea } from "../components/ui";
+import { Button, Callout, Card, Checkbox, EmptyState, ErrorState, Input, LoadingState, PageSkeleton, Select, StatusBadge, TextAction, Textarea } from "../components/ui";
 import { errorText } from "../lib/errors";
 import { PersonaEditor, type PersonaValue } from "../components/PersonaEditor";
 import { TrendsCard } from "./Dashboard";
@@ -1663,7 +1663,7 @@ function ThemeDetail({ themeId }: { themeId: string }) {
     onError: (err) => setModeError(err instanceof ApiError ? err.message : "Не удалось сохранить"),
   });
 
-  if (theme.isLoading) return <LoadingState />;
+  if (theme.isLoading) return <PageSkeleton />;
   if (theme.error)
     return <ErrorState message={errorText(theme.error)} onRetry={() => theme.refetch()} />;
   if (!theme.data) return null;
@@ -1879,7 +1879,7 @@ export function Themes() {
     if (themeId) localStorage.setItem(LAST_THEME_KEY, themeId);
   }, [themeId]);
 
-  if (themes.isLoading) return <LoadingState />;
+  if (themes.isLoading) return <PageSkeleton />;
   if (themes.error)
     return <ErrorState message={errorText(themes.error)} onRetry={() => themes.refetch()} />;
 
@@ -1888,7 +1888,7 @@ export function Themes() {
   if (!themeId && list.length > 0) {
     // Ждём боты/каналы: без них выбор укомплектованной темы не сделать, а
     // редирект необратим — промахнёмся и оператор снова не там, где нужно.
-    if (bots.isLoading || channels.isLoading) return <LoadingState />;
+    if (bots.isLoading || channels.isLoading) return <PageSkeleton cards={1} />;
     const target = pickDefaultTheme(list, bots.data ?? [], channels.data ?? []);
     if (target) return <Navigate to={`/themes/${target}`} replace />;
   }

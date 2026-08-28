@@ -29,8 +29,42 @@ export function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+/** Строчка «Загрузка…» — ТОЛЬКО для лент внутри уже нарисованной карточки. Для целого
+ *  экрана она не годится: страница схлопывается в одну строку, подвал прыгает вверх, а
+ *  потом всё разворачивается обратно. Для экрана есть PageSkeleton ниже. */
 export function LoadingState({ label = "Загрузка…" }: { label?: string }) {
   return <p className="py-8 text-center text-sm text-ink-muted">{label}</p>;
+}
+
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} aria-hidden />;
+}
+
+export function CardSkeleton({ rows = 3, className = "" }: { rows?: number; className?: string }) {
+  return (
+    <Card className={className}>
+      <Skeleton className="mb-4 h-4 w-40" />
+      <div className="flex flex-col gap-2.5">
+        {Array.from({ length: rows }).map((_, i) => (
+          // Последняя строка короче — так выглядит настоящий текст, и заглушка не
+          // читается как таблица из одинаковых плашек.
+          <Skeleton key={i} className={`h-3.5 ${i === rows - 1 ? "w-2/3" : "w-full"}`} />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+/** Заглушка целого экрана: несколько карточек сверху вниз. Ей же закрыт Suspense, пока
+ *  подгружается код страницы, — чтобы вспышка была одна, а не две подряд. */
+export function PageSkeleton({ cards = 3 }: { cards?: number }) {
+  return (
+    <div className="flex flex-col gap-4">
+      {Array.from({ length: cards }).map((_, i) => (
+        <CardSkeleton key={i} rows={i === 0 ? 2 : 3} />
+      ))}
+    </div>
+  );
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -55,7 +89,10 @@ export function EmptyState({ message }: { message: string }) {
 }
 
 export function Callout({ children, tone = "info" }: { children: ReactNode; tone?: "info" | "warning" }) {
-  const styles = tone === "warning" ? "bg-bad-soft text-bad" : "bg-surface-2 text-ink-muted";
+  // Предупреждение красится в охру, а не в красный: красный в панели означает «встало,
+  // разбирайтесь сейчас», и подсказка вида «так делать не стоит» им же выглядела бы
+  // аварией. Токены warn появились вместе с палитрой NX.
+  const styles = tone === "warning" ? "bg-warn-soft text-warn" : "bg-surface-2 text-ink-muted";
   return <div className={`rounded-lg p-3 text-sm ${styles}`}>{children}</div>;
 }
 
