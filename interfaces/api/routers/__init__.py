@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from interfaces.api.routers.admins import router as admins_router
 from interfaces.api.routers.alerts import router as alerts_router
+from interfaces.api.routers.assistant import router as assistant_router
 from interfaces.api.routers.audit_logs import router as audit_logs_router
 from interfaces.api.routers.auth import router as auth_router
 from interfaces.api.routers.candidates import router as candidates_router
@@ -42,3 +43,4 @@ router.include_router(queue_router)
 router.include_router(dashboard_router)
 router.include_router(alerts_router)
 router.include_router(admins_router)
+router.include_router(assistant_router)

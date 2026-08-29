@@ -10,14 +10,16 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.models.llm_usage import LlmUsage
-from core.models.theme import Theme
 from core.services.automation import get_automation
 from core.services.llm_budget import get_budget_state
-from core.services.llm_usage import summary_by_day, summary_by_kind, summary_by_model
+from core.services.llm_usage import (
+    summary_by_day,
+    summary_by_kind,
+    summary_by_model,
+    summary_by_theme,
+)
 from interfaces.api.auth import get_current_admin
 from interfaces.api.deps import get_db
 
@@ -81,17 +83,7 @@ async def usage(days: int = 30, session: AsyncSession = Depends(get_db)) -> Usag
     state = await get_budget_state(session)
     automation = await get_automation(session)
 
-    # Разбивка по темам — у NXai их несколько, и общий итог не отвечает на вопрос
-    # «какая тема столько ест». Тему берём внешним соединением: расход мог остаться от
-    # удалённой темы, и терять его из итога нельзя.
-    theme_rows = (
-        await session.execute(
-            select(LlmUsage.theme_id, Theme.name, func.sum(LlmUsage.cost_usd))
-            .outerjoin(Theme, Theme.id == LlmUsage.theme_id)
-            .group_by(LlmUsage.theme_id, Theme.name)
-            .order_by(func.sum(LlmUsage.cost_usd).desc())
-        )
-    ).all()
+    by_theme = await summary_by_theme(session, days)
 
     return UsageOut(
         days=days,
@@ -110,10 +102,10 @@ async def usage(days: int = 30, session: AsyncSession = Depends(get_db)) -> Usag
         by_model=[(title, round(cost, 4)) for title, cost in by_model],
         by_theme=[
             ThemeCostOut(
-                theme_id=theme_id,
-                theme_name=name or ("удалённая тема" if theme_id else "вне темы"),
-                cost_usd=round(float(cost or 0.0), 4),
+                theme_id=t.theme_id,
+                theme_name=t.theme_name,
+                cost_usd=round(t.cost_usd, 4),
             )
-            for theme_id, name, cost in theme_rows
+            for t in by_theme
         ],
     )

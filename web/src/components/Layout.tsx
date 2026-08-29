@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { AssistantWidget } from "./AssistantWidget";
 import { MobileTabBar } from "./MobileTabBar";
 import { ThemeToggle } from "./ThemeToggle";
 import { PageSkeleton } from "./ui";
@@ -172,6 +173,10 @@ export function Layout() {
       </main>
 
       <MobileTabBar />
+
+      {/* В каркасе, а не на отдельной странице: спрашивают обычно про то, что сейчас
+          на экране, и уходить ради вопроса со страницы неправильно. */}
+      <AssistantWidget />
     </div>
   );
 }

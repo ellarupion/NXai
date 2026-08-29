@@ -34,6 +34,7 @@ KIND_TITLES: dict[LlmUsageKind, str] = {
     LlmUsageKind.DIGEST: "Дайджест дня",
     LlmUsageKind.STYLE_EXTRACT: "Разбор стиля канала",
     LlmUsageKind.PERSONA_PREVIEW: "Проба персоны",
+    LlmUsageKind.ASSISTANT: "Вопросы помощнику",
 }
 
 
@@ -210,6 +211,45 @@ async def summary_by_day(session: AsyncSession, days: int) -> list[DayTotal]:
         )
     ).all()
     return [DayTotal(day=str(day), cost_usd=float(cost or 0.0)) for day, cost in rows]
+
+
+@dataclass(frozen=True)
+class ThemeTotal:
+    theme_id: UUID | None
+    theme_name: str
+    cost_usd: float
+
+
+async def summary_by_theme(session: AsyncSession, days: int) -> list[ThemeTotal]:
+    """Разбивка по темам — у NXai их несколько, и общий итог не отвечает на вопрос
+    «какая тема столько ест».
+
+    Тему берём внешним соединением: расход мог остаться от удалённой темы, и терять
+    его из итога нельзя — иначе сумма по темам не сойдётся с общей.
+
+    Период здесь обязателен. Сначала этот запрос жил прямо в роутере и считал за всё
+    время, хотя страница была подписана «за 7 дней»: разбивка по темам показывала
+    суммы больше общего итога, и сверить одно с другим было невозможно."""
+    from core.models.theme import Theme
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        await session.execute(
+            select(LlmUsage.theme_id, Theme.name, func.sum(LlmUsage.cost_usd))
+            .outerjoin(Theme, Theme.id == LlmUsage.theme_id)
+            .where(LlmUsage.created_at >= since)
+            .group_by(LlmUsage.theme_id, Theme.name)
+            .order_by(func.sum(LlmUsage.cost_usd).desc())
+        )
+    ).all()
+    return [
+        ThemeTotal(
+            theme_id=theme_id,
+            theme_name=name or ("удалённая тема" if theme_id else "вне темы"),
+            cost_usd=float(cost or 0.0),
+        )
+        for theme_id, name, cost in rows
+    ]
 
 
 async def summary_by_model(session: AsyncSession, days: int) -> list[tuple[str, float]]:

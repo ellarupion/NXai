@@ -96,3 +96,4 @@ class LlmUsageKind(str, enum.Enum):
     DIGEST = "digest"                    # дайджест дня
     STYLE_EXTRACT = "style_extract"      # извлечь стиль канала из образцов
     PERSONA_PREVIEW = "persona_preview"  # песочница персоны в панели
+    ASSISTANT = "assistant"              # вопрос помощнику в панели
