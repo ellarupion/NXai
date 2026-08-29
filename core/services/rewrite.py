@@ -47,6 +47,16 @@ ANTI_COPY_INSTRUCTIONS = """\
 """
 
 
+def build_rewrite_system_prompt(persona_prompt: str) -> str:
+    """Системный промпт рерайта целиком.
+
+    Вынесен отдельно ради замера качества (core/services/rewrite_quality.py): замер
+    обязан переписывать ровно тем же промптом, что и боевой конвейер. Собери он
+    промпт по-своему — и сравнивались бы не персоны, а две разные сборки, а вывод
+    «новая персона лучше» оказался бы про что-то другое."""
+    return f"{persona_prompt}\n\n{ANTI_COPY_INSTRUCTIONS}"
+
+
 class RewriteService:
     def __init__(self, session: AsyncSession, llm: LLMClient, embeddings: EmbeddingsClient) -> None:
         self.session = session
@@ -74,7 +84,7 @@ class RewriteService:
                 "(пост-картинка без подписи)"
             )
 
-        system_prompt = f"{persona_prompt}\n\n{ANTI_COPY_INSTRUCTIONS}"
+        system_prompt = build_rewrite_system_prompt(persona_prompt)
         result = await self.llm.complete(
             model=REWRITE_MODEL,
             system_prompt=system_prompt,

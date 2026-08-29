@@ -35,6 +35,7 @@ KIND_TITLES: dict[LlmUsageKind, str] = {
     LlmUsageKind.STYLE_EXTRACT: "Разбор стиля канала",
     LlmUsageKind.PERSONA_PREVIEW: "Проба персоны",
     LlmUsageKind.ASSISTANT: "Вопросы помощнику",
+    LlmUsageKind.QUALITY: "Замер качества",
 }
 
 

@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { to: "/queue", label: "Очередь" },
   { to: "/publications", label: "Публикации" },
   { to: "/spending", label: "Расходы" },
+  { to: "/quality", label: "Качество" },
   { to: "/telethon-sessions", label: "Аккаунты" },
   { to: "/settings", label: "Настройки" },
 ];
@@ -29,7 +30,10 @@ const NAV_ITEMS = [
 // их смотрят при настройке и разборе, а не в ежедневной работе.
 const EXTRA_ITEMS = NAV_ITEMS.filter(
   (item) =>
-    item.to === "/spending" || item.to === "/telethon-sessions" || item.to === "/settings",
+    item.to === "/spending" ||
+    item.to === "/quality" ||
+    item.to === "/telethon-sessions" ||
+    item.to === "/settings",
 );
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {

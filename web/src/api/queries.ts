@@ -14,6 +14,8 @@ import type {
   PoolPost,
   PostPassport,
   PublicationsPage,
+  QualityRun,
+  QualityRunDetail,
   SettingsStatus,
   SourceChannel,
   TargetChannel,
@@ -161,6 +163,20 @@ export const auditLogsQuery = (params: {
     queryFn: () => api.get<AuditLogsPage>(`/audit-logs?${q.toString()}`),
   };
 };
+
+export const qualityRunsQuery = (themeId?: string) => ({
+  queryKey: ["quality-runs", themeId ?? "all"],
+  queryFn: () => api.get<QualityRun[]>(`/quality-runs${themeId ? `?theme_id=${themeId}` : ""}`),
+  // Замер считает планировщик минутами — без опроса страница показывала бы
+  // «заказан» до тех пор, пока её не перезагрузят руками.
+  refetchInterval: 10_000,
+});
+
+export const qualityRunQuery = (runId: string) => ({
+  queryKey: ["quality-run", runId],
+  queryFn: () => api.get<QualityRunDetail>(`/quality-runs/${runId}`),
+  refetchInterval: 10_000,
+});
 
 export const postPassportQuery = (candidateId: string) => ({
   queryKey: ["post-passport", candidateId],

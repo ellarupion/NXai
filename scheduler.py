@@ -21,11 +21,17 @@ from core.logging import configure_logging, get_logger
 from core.models.ad_detection import AdDetection
 from core.models.candidate_post import CandidatePost
 from core.models.channel_bot import ChannelBot
-from core.models.enums import AdDetectionAction, BotRole, CandidatePostStatus
+from core.models.enums import (
+    AdDetectionAction,
+    BotRole,
+    CandidatePostStatus,
+    QualityRunStatus,
+)
 from core.models.metrics_snapshot import PublicationMetricsSnapshot
 from core.models.pool_post import PoolPost
 from core.models.post_version import PostVersion
 from core.models.publication import Publication
+from core.models.rewrite_quality import RewriteQualityRun
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.telethon_session import TelethonSession
@@ -53,6 +59,7 @@ from core.services.publisher import PublisherService
 from core.services.persona import build_persona_prompt
 from core.services import daily_batch, rubrics
 from core.services.rewrite import RewriteService
+from core.services.rewrite_quality import RewriteQualityService
 from core.services.scheduler_pool import SchedulerPoolService, is_due, resolve_zoneinfo
 from core.services.scoring import ScoringService
 from core.statistics.client import SourceStatsClient
@@ -71,6 +78,9 @@ AD_WATCHDOG_INTERVAL_MINUTES = 5
 HEARTBEAT_INTERVAL_SECONDS = 60
 PUBLICATION_METRICS_INTERVAL_MINUTES = 30
 DIGEST_INTERVAL_MINUTES = 20
+# Раз в минуту — это только SELECT, когда замеров не заказано. Ждать дольше незачем:
+# человек нажал «Замерить» и смотрит на страницу.
+QUALITY_RUN_INTERVAL_MINUTES = 1
 # Собираем метрики только у публикаций моложе этого возраста: у свежих постов
 # просмотры/форварды ещё растут, у старых давно замерли — гонять по ним
 # Telethon каждый тик впустую.
@@ -761,6 +771,39 @@ async def _notify_admin(session, text: str) -> None:
         logger.exception("scheduler.admin_notify_failed")
 
 
+async def quality_run_job() -> None:
+    """Выполняет заказанные замеры качества рерайта (core/services/rewrite_quality.py).
+
+    Замер — это десятки обращений к модели и минуты работы, поэтому он не может быть
+    ответом на запрос панели: панель его заказывает, а считает планировщик.
+
+    По одному замеру за тик: два замера одновременно — это двойной расход в минуту и
+    двойная нагрузка на провайдера, а ждать очереди человеку всё равно недолго.
+
+    Замеры, застрявшие в состоянии «идёт» после перезапуска процесса, подхватываются
+    тем же способом: доделываются пары, у которых ещё нет приговора. Иначе перезапуск
+    посреди замера оставлял бы его висеть навсегда, а деньги на посчитанные пары уже
+    были потрачены."""
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        run = (
+            await session.execute(
+                select(RewriteQualityRun)
+                .where(
+                    RewriteQualityRun.status.in_(
+                        [QualityRunStatus.PENDING, QualityRunStatus.RUNNING]
+                    )
+                )
+                .order_by(RewriteQualityRun.created_at)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if run is None:
+            return
+        logger.info("scheduler.quality_run_start", run_id=str(run.id), size=run.size)
+        await RewriteQualityService(session, LLMClient()).execute(run)
+
+
 async def _preview_text_for(session, next_post) -> str:
     if next_post.kind == "candidate":
         candidate = await session.get(CandidatePost, next_post.id)
@@ -820,6 +863,10 @@ def build_scheduler() -> AsyncIOScheduler:
     scheduler.add_job(
         digest_job, "interval", minutes=DIGEST_INTERVAL_MINUTES,
         id="digest", max_instances=1,
+    )
+    scheduler.add_job(
+        quality_run_job, "interval", minutes=QUALITY_RUN_INTERVAL_MINUTES,
+        id="quality_run", max_instances=1,
     )
 
     return scheduler

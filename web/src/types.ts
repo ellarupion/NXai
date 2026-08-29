@@ -427,3 +427,49 @@ export interface PostPassport {
   cost_usd: number;
   cost_by_kind: { title: string; cost_usd: number; calls: number }[];
 }
+
+/* Замер качества рерайта: «новая персона выигрывает в 9 случаях из 12».
+   До него про качество текстов не было ни одного числа. */
+export type QualityRunStatus = "pending" | "running" | "done" | "failed";
+export type QualityVerdict = "baseline" | "variant" | "tie";
+
+export interface QualityRun {
+  id: string;
+  theme_id: string | null;
+  theme_name: string | null;
+  title: string;
+  status: QualityRunStatus;
+  size: number;
+  /* Сколько пар уже посужено — идущий замер иначе выглядит зависшим. */
+  judged: number;
+  wins_baseline: number;
+  wins_variant: number;
+  ties: number;
+  /* Итог словами — считается на бэкенде, чтобы решение «как считать ничьи»
+     жило в одном месте, а не вторым экземпляром в панели. */
+  summary: string;
+  baseline_model: string;
+  variant_model: string;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface QualityPair {
+  id: string;
+  source_text: string;
+  baseline_text: string;
+  variant_text: string;
+  verdict: QualityVerdict | null;
+  /* Оба приговора видны намеренно: разошлись — значит, судья поменял мнение от
+     одной перестановки, и это стоит видеть, а не только итоговую ничью. */
+  verdict_direct: QualityVerdict | null;
+  verdict_swapped: QualityVerdict | null;
+  reason: string;
+}
+
+export interface QualityRunDetail extends QualityRun {
+  baseline_persona: string;
+  variant_persona: string;
+  pairs: QualityPair[];
+}

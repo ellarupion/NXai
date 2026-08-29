@@ -14,6 +14,7 @@ from core.models.post_version import PostVersion
 from core.models.llm_usage import LlmUsage
 from core.models.post_passport import PostPassport
 from core.models.publication import Publication
+from core.models.rewrite_quality import RewriteQualityPair, RewriteQualityRun
 from core.models.source_channel import SourceChannel
 from core.models.target_channel import TargetChannel
 from core.models.telethon_session import TelethonSession
@@ -35,6 +36,8 @@ __all__ = [
     "LlmUsage",
     "PostPassport",
     "Publication",
+    "RewriteQualityRun",
+    "RewriteQualityPair",
     "AdDetection",
     "Admin",
     "AuditLog",

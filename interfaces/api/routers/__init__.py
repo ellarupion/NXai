@@ -14,6 +14,7 @@ from interfaces.api.routers.llm_usage import router as llm_usage_router
 from interfaces.api.routers.pool_posts import router as pool_posts_router
 from interfaces.api.routers.publications import router as publications_router
 from interfaces.api.routers.queue import router as queue_router
+from interfaces.api.routers.rewrite_quality import router as quality_runs_router
 from interfaces.api.routers.settings import automation_router as settings_automation_router
 from interfaces.api.routers.settings import general_router as settings_general_router
 from interfaces.api.routers.settings import router as settings_router
@@ -44,3 +45,4 @@ router.include_router(dashboard_router)
 router.include_router(alerts_router)
 router.include_router(admins_router)
 router.include_router(assistant_router)
+router.include_router(quality_runs_router)

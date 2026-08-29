@@ -46,6 +46,28 @@ class PublicationSource(str, enum.Enum):
     POOL = "pool"              # опубликован пост из pool_posts (обычное заполнение либо ad-cover)
 
 
+class QualityRunStatus(str, enum.Enum):
+    """Состояние замера качества рерайта (core/services/rewrite_quality.py).
+
+    Замер идёт минутами — это десятки обращений к модели, — поэтому он не может
+    быть ответом на запрос панели: его заказывают, а выполняет планировщик.
+    Отсюда и состояния: панель по ним показывает, что происходит."""
+
+    PENDING = "pending"      # заказан, планировщик ещё не взял
+    RUNNING = "running"      # идёт прямо сейчас
+    DONE = "done"
+    FAILED = "failed"        # сорвался — причина в поле error
+
+
+class QualityVerdict(str, enum.Enum):
+    """Кто победил в паре. BASELINE — то, что работает сейчас; VARIANT — то, что
+    проверяют. TIE — судьи разошлись либо оба назвали ничью."""
+
+    BASELINE = "baseline"
+    VARIANT = "variant"
+    TIE = "tie"
+
+
 class AdDetectionAction(str, enum.Enum):
     PENDING = "pending"            # обнаружено, таймер на 60 минут ещё не сработал
     AUTO_BURIED = "auto_buried"    # свой пост из пула поставлен поверх автоматически
@@ -97,3 +119,4 @@ class LlmUsageKind(str, enum.Enum):
     STYLE_EXTRACT = "style_extract"      # извлечь стиль канала из образцов
     PERSONA_PREVIEW = "persona_preview"  # песочница персоны в панели
     ASSISTANT = "assistant"              # вопрос помощнику в панели
+    QUALITY = "quality"                  # замер качества рерайта: рерайты и судейство
